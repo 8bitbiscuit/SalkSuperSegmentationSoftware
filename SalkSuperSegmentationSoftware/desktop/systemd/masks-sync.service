@@ -1,0 +1,6 @@
+[Unit]
+Description=Copy this session's masks to S3
+
+[Service]
+Type=oneshot
+ExecStart=/opt/annotate/sync-masks.sh

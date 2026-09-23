@@ -1,0 +1,7 @@
+[Unit]
+Description=Check every minute whether the session is finished
+
+[Timer]
+OnActiveSec=2min
+OnUnitActiveSec=1min
+AccuracySec=5s

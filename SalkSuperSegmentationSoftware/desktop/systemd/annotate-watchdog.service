@@ -1,0 +1,6 @@
+[Unit]
+Description=End the session when it is finished, asked to stop, or idle
+
+[Service]
+Type=oneshot
+ExecStart=/opt/annotate/watchdog.sh

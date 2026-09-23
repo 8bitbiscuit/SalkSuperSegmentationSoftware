@@ -1,0 +1,9 @@
+# The desktop's napari environment (/opt/annotate/venv on the AMI). These are
+# the versions desktop/tests passed with. To match the lab server exactly,
+# replace this with `pip freeze` from its container.
+napari[pyqt5]==0.9.1
+PyQt5==5.15.11
+dask==2026.8.0
+magicgui==0.10.2
+numpy==2.4.6
+tifffile==2026.3.3

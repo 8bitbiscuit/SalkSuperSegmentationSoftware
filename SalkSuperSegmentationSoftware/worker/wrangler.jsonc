@@ -1,0 +1,60 @@
+// One Worker serves the Jekyll build (site/_site) and the session API (/api/*).
+//
+// The top level is local development: `npm run dev` (or `make dev` from the
+// repo root) runs it at http://localhost:8787 against a pretend cloud, with
+// no sign-in. `--env production` is the real thing, behind Cloudflare Access.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "annotate",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "assets": {
+    "directory": "../site/_site",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"]
+  },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "annotate", "database_id": "local-only", "migrations_dir": "migrations" }
+  ],
+  "triggers": { "crons": ["*/10 * * * *"] },
+  "vars": {
+    "BACKEND": "mock",
+    "DEV_EMAIL": "dev.user@example.org",
+    "SESSION_HOSTNAME": "{id}.localhost",
+    "IDLE_MINUTES": "30"
+  },
+
+  "env": {
+    "production": {
+      "name": "annotate",
+      // No *.workers.dev or preview URL: they would sit outside Access.
+      "workers_dev": false,
+      "preview_urls": false,
+      // TODO(domain): the site's hostname, e.g. annotate.example.org.
+      // "routes": [{ "pattern": "annotate.example.org", "custom_domain": true }],
+      "d1_databases": [
+        // TODO: id from `npx wrangler d1 create annotate`
+        { "binding": "DB", "database_name": "annotate", "database_id": "REPLACE_WITH_D1_DATABASE_ID", "migrations_dir": "migrations" }
+      ],
+      "triggers": { "crons": ["*/10 * * * *"] },
+      "vars": {
+        "BACKEND": "aws",
+        "AWS_REGION": "us-west-2",
+        // From `terraform output` in infra/.
+        "LAUNCH_TEMPLATE_ID": "REPLACE_WITH_LAUNCH_TEMPLATE_ID",
+        "BUCKET": "REPLACE_WITH_BUCKET",
+        // TODO(domain): desktop hostnames. The zone must be on Cloudflare, and
+        // the name one level below it for the free certificate.
+        "SESSION_HOSTNAME": "s-{id}.example.org",
+        "CF_ACCOUNT_ID": "REPLACE_WITH_ACCOUNT_ID",
+        "CF_ZONE_ID": "REPLACE_WITH_ZONE_ID",
+        // Zero Trust -> Access -> the application's Overview: team domain and AUD tag.
+        "ACCESS_TEAM_DOMAIN": "https://REPLACE_ME.cloudflareaccess.com",
+        "ACCESS_AUD": "REPLACE_WITH_ACCESS_AUD",
+        "IDLE_MINUTES": "30"
+      }
+      // Secrets (npx wrangler secret put NAME --env production):
+      //   AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, CF_API_TOKEN, DCV_TOKEN_SECRET
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "name": "annotate-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler d1 migrations apply annotate --local && wrangler dev --test-scheduled",
+    "deploy": "wrangler d1 migrations apply annotate --remote --env production && wrangler deploy --env production",
+    "check": "tsc",
+    "test": "node --no-warnings=ExperimentalWarning --test test/*.test.ts"
+  },
+  "dependencies": {
+    "aws4fetch": "^1.0.20",
+    "jose": "^6.2.12"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260922.1",
+    "typescript": "^7.0.2",
+    "wrangler": "^4.136.3"
+  }
+}

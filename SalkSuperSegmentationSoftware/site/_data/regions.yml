@@ -1,0 +1,5 @@
+# Regions annotators can open. Upload a region's images first:
+#   aws s3 sync /path/to/region_X/images s3://<bucket>/regions/region_X/images/
+# then add it here. `id` is the S3 folder name; `label` is what people see.
+- id: region_UCI-5224
+  label: UCI-5224

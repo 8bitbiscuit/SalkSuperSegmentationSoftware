@@ -1,0 +1,9 @@
+[Unit]
+Description=DCV authenticator: accept only this session's token
+
+[Service]
+# Read by systemd as root, before it drops to the dynamic user.
+EnvironmentFile=/etc/annotate/secrets.env
+ExecStart=/usr/bin/python3 /opt/annotate/dcv-token-verifier.py
+DynamicUser=yes
+Restart=on-failure

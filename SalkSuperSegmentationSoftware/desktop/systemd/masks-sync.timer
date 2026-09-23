@@ -1,0 +1,7 @@
+[Unit]
+Description=Copy this session's masks to S3 every minute
+
+[Timer]
+OnActiveSec=1min
+OnUnitActiveSec=1min
+AccuracySec=5s

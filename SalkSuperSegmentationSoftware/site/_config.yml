@@ -1,0 +1,8 @@
+title: Segmentation desktops
+description: Annotate MERSCOPE regions in napari from your browser.
+
+# Where masks end up, shown on the guide page.
+masks_location: s3://<bucket>/regions/<region>/masks/
+
+markdown: kramdown
+permalink: pretty

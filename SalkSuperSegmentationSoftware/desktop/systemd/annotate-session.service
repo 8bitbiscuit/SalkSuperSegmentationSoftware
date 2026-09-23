@@ -1,0 +1,21 @@
+[Unit]
+Description=Annotation session: region from S3, napari in DCV, tunnel
+# Only on an instance the website launched: cloud-init writes session.env.
+ConditionPathExists=/etc/annotate/session.env
+Wants=network-online.target
+After=network-online.target cloud-init.service dcvserver.service
+Requires=dcvserver.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+EnvironmentFile=/etc/annotate/session.env
+ExecStart=/opt/annotate/session-boot.sh
+# Stops before dcvserver (it is ordered after it), so napari still has its
+# display while it saves.
+ExecStop=/opt/annotate/session-stop.sh
+TimeoutStartSec=30min
+TimeoutStopSec=20min
+
+[Install]
+WantedBy=multi-user.target
