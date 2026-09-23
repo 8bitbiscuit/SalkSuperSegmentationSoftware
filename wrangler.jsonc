@@ -6,7 +6,7 @@
 // and shows a setup page until the required ones are there. See README.md.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "annotate",
+  "name": "salksupersegmentationsoftware",
   "main": "worker/src/index.ts",
   "compatibility_date": "2026-09-01",
   "assets": {
