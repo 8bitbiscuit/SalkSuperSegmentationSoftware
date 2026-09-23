@@ -1,0 +1,21 @@
+# Jekyll
+site/_site/
+site/.jekyll-cache/
+site/.jekyll-metadata
+site/.bundle/
+site/vendor/
+
+# Worker
+node_modules/
+.wrangler/
+.dev.vars
+
+# Terraform / Packer
+infra/.terraform/
+infra/*.tfstate
+infra/*.tfstate.*
+infra/*.tfvars
+ami/packer_cache/
+ami/manifest.json
+
+__pycache__/

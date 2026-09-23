@@ -7,7 +7,12 @@
 
   let pollTimer = null;
   let view = null;        // what is on screen, so a poll doesn't wipe the form
-  let regions = null;
+  let chosen = null;      // the folder a new session would open
+  let listingRound = 0;   // only the newest folder listing may draw
+
+  // Names for the folder levels under the data prefix; deeper ones are "Folder".
+  const LEVELS = ['Brain region', 'Region', 'Field of view'];
+  const pretty = (path) => path.split('/').join(' / ');
 
   class NoApi extends Error {}
 
@@ -40,6 +45,10 @@
       throw new Error('Could not reach the server. Your sign-in may have expired; reload the page.');
     }
     if (!(res.headers.get('content-type') || '').includes('application/json')) throw new NoApi();
+    if (res.status === 401) {
+      location.href = '/auth/login';   // signed out, or the sign-in ran out
+      throw new Error('Signing you in again…');
+    }
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || `Request failed (${res.status})`);
     return body;
@@ -90,11 +99,9 @@
     root.querySelector('#retry').onclick = () => { clearTimeout(pollTimer); refresh(); };
   }
 
-  const labelOf = (id) => (regions || []).find((r) => r.id === id)?.label || id;
-
   function lastNotice(last) {
     if (!last) return '';
-    const region = esc(labelOf(last.region));
+    const region = esc(pretty(last.region));
     if (last.state === 'failed') {
       return `<p class="notice bad">Your last session on ${region} failed: ${esc(last.error || 'unknown error')}</p>`;
     }
@@ -104,38 +111,61 @@
 
   async function renderForm(last) {
     view = 'form';
-    if (!regions) {
-      try {
-        const res = await fetch('/regions.json');
-        regions = await res.json();
-      } catch {
-        regions = [];
-      }
-    }
-    const saved = recall('region');
+    chosen = null;
     root.innerHTML = `
       ${lastNotice(last)}
       <h2>Start a session</h2>
-      <label for="region">Region</label>
-      <select id="region">
-        ${regions.map((r) => `<option value="${esc(r.id)}"${r.id === saved ? ' selected' : ''}>${esc(r.label || r.id)}</option>`).join('')}
-      </select>
-      <label for="resume">Masks to start from</label>
-      <select id="resume"><option value="">Loading…</option></select>
-      <p class="hint">Resuming copies that file's labels into a new masks file with your name on it; the file you pick is never changed.</p>
+      <div id="folders"></div>
+      <div id="resume-box" hidden>
+        <label for="resume">Masks to start from</label>
+        <select id="resume"><option value="">Loading…</option></select>
+        <p class="hint">Resuming copies that file's labels into a new masks file with your name on it; the file you pick is never changed.</p>
+      </div>
       <p class="notice bad" id="form-error" hidden></p>
-      <div class="actions"><button id="start">Start session</button></div>`;
+      <div class="actions"><button id="start" disabled>Start session</button></div>`;
+    root.querySelector('#start').onclick = () => startSession(chosen, root.querySelector('#resume').value);
+    openLevel(0, '', (recall('folder') || '').split('/'));
+  }
 
-    const region = root.querySelector('#region');
-    const start = root.querySelector('#start');
-    region.onchange = () => { remember('region', region.value); loadMasks(region.value); };
-    start.onclick = () => startSession(region.value, root.querySelector('#resume').value);
-    if (!regions.length) {
-      start.disabled = true;
-      showFormError('No regions are listed yet. Add one to site/_data/regions.yml.');
-      return;
+  /** Show the folders inside `path` as level `depth`; a folder with images is the one to open. */
+  async function openLevel(depth, path, wanted) {
+    const box = root.querySelector('#folders');
+    [...box.children].slice(depth).forEach((el) => el.remove());
+    chosen = null;
+    root.querySelector('#start').disabled = true;
+    root.querySelector('#resume-box').hidden = true;
+
+    const round = ++listingRound;
+    let listing;
+    try {
+      listing = await api(`/api/folders?path=${encodeURIComponent(path)}`);
+    } catch (err) {
+      return showFormError(`Couldn't list folders: ${err.message}`);
     }
-    loadMasks(region.value);
+    if (round !== listingRound) return;   // a newer choice replaced this one
+    showFormError('');
+    if (listing.images > 0) {
+      chosen = path;
+      remember('folder', path);
+      root.querySelector('#start').disabled = false;
+      return loadMasks(path);
+    }
+    if (!listing.folders.length) {
+      return showFormError(path ? `${pretty(path)} has no ${listing.channel} images and no folders.` : 'No folders found in the bucket.');
+    }
+
+    const level = document.createElement('div');
+    const id = `level-${depth}`;
+    level.innerHTML = `
+      <label for="${id}">${LEVELS[depth] || 'Folder'}</label>
+      <select id="${id}"><option value="">Choose…</option>
+        ${listing.folders.map((f) => `<option${f === wanted[depth] ? ' selected' : ''}>${esc(f)}</option>`).join('')}
+      </select>`;
+    box.append(level);
+    const select = level.querySelector('select');
+    const next = (keep) => select.value && openLevel(depth + 1, path ? `${path}/${select.value}` : select.value, keep);
+    select.onchange = () => next([]);
+    next(wanted);   // carry on down to the folder used last time
   }
 
   function showFormError(message) {
@@ -146,6 +176,7 @@
   }
 
   async function loadMasks(regionId) {
+    root.querySelector('#resume-box').hidden = false;
     const select = root.querySelector('#resume');
     select.innerHTML = '<option value="">Loading…</option>';
     select.disabled = true;
@@ -200,11 +231,11 @@
 
   function renderSession(s) {
     view = `session-${s.state}`;
-    const regionLabel = labelOf(s.region);
+    const regionLabel = pretty(s.region);
     const from = s.resume_key ? s.resume_key.split('/').pop() : 'empty masks';
     const facts = `
       <dl class="facts">
-        <dt>Region</dt><dd>${esc(regionLabel)}</dd>
+        <dt>Folder</dt><dd>${esc(regionLabel)}</dd>
         <dt>Masks from</dt><dd>${esc(from)}</dd>
         <dt>Started</dt><dd>${ago(s.created_at)}</dd>
       </dl>`;

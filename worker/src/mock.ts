@@ -3,7 +3,7 @@
 // ended properly leaves a masks file behind, so the whole flow can be clicked
 // through with no AWS or Cloudflare account. State lives in memory for as long
 // as `wrangler dev` runs.
-import type { Backend, Instance, MaskFile } from './env.ts';
+import type { Backend, Env, Instance, MaskFile } from './env.ts';
 import { masksPrefix } from './session.ts';
 
 const BOOT_MS = 5_000;       // pending -> running
@@ -15,25 +15,32 @@ interface MockInstance extends Instance {
   stopAt?: number;
   username: string;
   region: string;
+  masks: string;   // the region's masks folder
 }
+
+// Fields of view in the pretend bucket, shaped like the real one.
+const FOVS = [
+  'CBDN/region_UWA-7648/fov_07', 'CBDN/region_UWA-7648/fov_08', 'CBDN/region_UWA-7650/fov_01',
+  'THM1/region_UWA-7701/fov_02', 'VePo/region_UWA-7733/fov_11',
+];
 
 const instances = new Map<string, MockInstance>();
 const tunnels = new Map<string, string>();   // tunnel id -> session id
-const masks = new Map<string, MaskFile[]>();
+const masks = new Map<string, MaskFile[]>();   // masks folder -> files
 
 const stamp = (ms: number) => new Date(ms).toISOString().replace(/[-:]/g, '').slice(0, 15);
 
-function masksFor(region: string): MaskFile[] {
-  if (!masks.has(region)) {
+function masksFor(folder: string): MaskFile[] {
+  if (!masks.has(folder)) {
     const day = 86_400_000;
     const file = (user: string, ago: number, size: number): MaskFile => ({
-      key: `${masksPrefix(region)}${user}_${stamp(Date.now() - ago)}_masks.tif.gz`,
+      key: `${folder}${user}_${stamp(Date.now() - ago)}_masks.tif.gz`,
       size,
       modified: new Date(Date.now() - ago).toISOString(),
     });
-    masks.set(region, [file('alice', 3 * day, 48e6), file('bob', 9 * day, 131e6)]);
+    masks.set(folder, [file('alice', 3 * day, 48e6), file('bob', 9 * day, 131e6)]);
   }
-  return masks.get(region)!;
+  return masks.get(folder)!;
 }
 
 function tick(now = Date.now()) {
@@ -42,8 +49,8 @@ function tick(now = Date.now()) {
     if (i.stopAt && i.state !== 'terminated' && now - i.stopAt > SHUTDOWN_MS) {
       i.state = 'terminated';
       // What the real instance's final save and sync would leave in S3.
-      masksFor(i.region).push({
-        key: `${masksPrefix(i.region)}${i.username}_${stamp(i.launchedAt)}_masks.tif.gz`,
+      masksFor(i.masks).push({
+        key: `${i.masks}${i.username}_${stamp(i.launchedAt)}_masks.tif.gz`,
         size: 5e6 + Math.round((now - i.launchedAt) * 1e3),
         modified: new Date(now).toISOString(),
       });
@@ -51,13 +58,13 @@ function tick(now = Date.now()) {
   }
 }
 
-export const mockBackend: Backend = {
+export const mockBackend = (env: Env): Backend => ({
   cloud: {
     async launch(spec) {
       const id = `i-mock${spec.session}`;
       instances.set(id, {
         id, session: spec.session, state: 'pending', launchedAt: Date.now(),
-        username: spec.username, region: spec.region,
+        username: spec.username, region: spec.region, masks: masksPrefix(env.DATA_PREFIX, spec.region),
       });
       return id;
     },
@@ -79,7 +86,13 @@ export const mockBackend: Backend = {
     },
     async listMasks(region) {
       tick();
-      return [...masksFor(region)];
+      return [...masksFor(masksPrefix(env.DATA_PREFIX, region))];
+    },
+    async listFolders(path) {
+      const below = path ? `${path}/` : '';
+      const folders = new Set(FOVS.filter((f) => f.startsWith(below)).map((f) => f.slice(below.length).split('/')[0]));
+      folders.delete('');
+      return { folders: [...folders].sort(), images: FOVS.includes(path) ? 7 : 0 };
     },
   },
 
@@ -102,7 +115,7 @@ export const mockBackend: Backend = {
 
   desktopUrl: (_hostname, session, token) =>
     `/api/dev/desktop?session=${encodeURIComponent(session)}&authToken=${encodeURIComponent(token)}`,
-};
+});
 
 /** Stands in for the DCV web client. */
 export function mockDesktopPage(url: URL): Response {

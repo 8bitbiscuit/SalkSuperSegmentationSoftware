@@ -69,7 +69,6 @@ kbd { font: 0.85em ui-monospace, monospace; border: 1px solid var(--line); borde
 .panel h2 { margin-top: 0; }
 
 label { display: block; font-weight: 600; margin: 16px 0 6px; }
-label:first-of-type { margin-top: 0; }
 select {
   width: 100%;
   font: inherit;

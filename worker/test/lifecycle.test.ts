@@ -16,6 +16,7 @@ function setup(instances: Instance[] = [], { healthy = false } = {}) {
       requestStop: async () => {},
       terminate: async (ids) => { calls.terminated.push(...ids); },
       listMasks: async () => [],
+      listFolders: async () => ({ folders: [], images: 0 }),
     },
     tunnels: {
       create: async () => ({ id: 'tun', token: 'tok' }),
@@ -31,7 +32,7 @@ async function insert(env: Env, fields: Partial<Row>): Promise<Row> {
   const row: Row = {
     id: 'aaaaaaaaaa', email: 'jdoe@example.org', username: 'jdoe', region: 'r1', resume_key: null,
     hostname: 's-aaaaaaaaaa.example.org', state: 'starting', tunnel_id: 'tun', instance_id: 'i-1',
-    error: null, created_at: Date.now(), ready_at: null, stop_requested_at: null, ended_at: null,
+    error: null, created_at: Date.now(), ready_at: null, stop_requested_at: null, ended_at: null, login_id: null,
     ...fields,
   };
   const cols = Object.keys(row);
@@ -86,17 +87,10 @@ test('one live session per user; a new one is allowed once the old one ends', as
   await insert(env, { id: 'bbbbbbbbbb' });
 });
 
-test('the reaper terminates instances no live session owns', async () => {
-  const { env, b, calls } = setup([running(), running('zzzzzzzzzz', 'i-orphan')]);
-  await insert(env, {});
-  await reap(env, b);
-  assert.deepEqual(calls.terminated, ['i-orphan']);
-});
-
 test('the reaper fails a boot that never finished', async () => {
   const { env, b, calls } = setup([running()]);
   await insert(env, { created_at: Date.now() - 25 * MIN });
-  await reap(env, b);
+  await reap(env, async () => b, b.tunnels);
   assert.deepEqual(calls.terminated, ['i-1']);
   assert.equal(await liveSession(env.DB, 'jdoe@example.org'), null);
 });
@@ -104,14 +98,46 @@ test('the reaper fails a boot that never finished', async () => {
 test('the reaper terminates a session that was asked to stop and did not', async () => {
   const { env, b, calls } = setup([running()]);
   await insert(env, { state: 'stopping', stop_requested_at: Date.now() - 40 * MIN });
-  await reap(env, b);
+  await reap(env, async () => b, b.tunnels);
   assert.deepEqual(calls.terminated, ['i-1']);
 });
 
 test('the reaper leaves a healthy session alone', async () => {
   const { env, b, calls } = setup([running()]);
   await insert(env, { state: 'ready', created_at: Date.now() - 6 * 60 * MIN });
-  await reap(env, b);
+  await reap(env, async () => b, b.tunnels);
   assert.deepEqual(calls.terminated, []);
+  assert.equal((await liveSession(env.DB, 'jdoe@example.org'))?.state, 'ready');
+});
+
+test('the reaper forgets finished sign-ins, but not one a running desktop still saves with', async () => {
+  const { env, b } = setup([running()]);
+  const login = (id: string, fields: string) => env.DB.prepare(
+    `INSERT INTO logins (id, email, refresh_token, id_token, id_token_expires_at, created_at, signed_out_at) VALUES (?, 'jdoe@example.org', 'r', 't', 0, ${fields})`,
+  ).bind(id).run();
+  await login('fresh', `${Date.now()}, NULL`);
+  await login('signed-out', `${Date.now()}, 1`);
+  await login('expired', `${Date.now() - 13 * 60 * MIN}, NULL`);
+  await login('in-use', `${Date.now()}, 1`);
+  await insert(env, { state: 'ready', login_id: 'in-use' });
+
+  await reap(env, async () => b, b.tunnels);
+  const left = (await env.DB.prepare('SELECT id FROM logins ORDER BY id').all<{ id: string }>()).results.map((r) => r.id);
+  assert.deepEqual(left, ['fresh', 'in-use']);
+});
+
+test('without the owner\'s sign-in, a session whose desktop is gone is closed by its tunnel', async () => {
+  const { env, b, calls } = setup();
+  await insert(env, { state: 'ready', ready_at: Date.now() - 60 * MIN, created_at: Date.now() - 61 * MIN });
+  await reap(env, async () => null, b.tunnels);
+  assert.deepEqual(calls.removed, ['annotate-aaaaaaaaaa']);
+  assert.equal(await liveSession(env.DB, 'jdoe@example.org'), null);
+});
+
+test('without the owner\'s sign-in, a session whose tunnel is up is left running', async () => {
+  const { env, b, calls } = setup([], { healthy: true });
+  await insert(env, { state: 'ready', ready_at: Date.now() - 60 * MIN, created_at: Date.now() - 61 * MIN });
+  await reap(env, async () => null, b.tunnels);
+  assert.deepEqual(calls.removed, []);
   assert.equal((await liveSession(env.DB, 'jdoe@example.org'))?.state, 'ready');
 });

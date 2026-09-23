@@ -1,5 +1,8 @@
-# cp terraform.tfvars.example terraform.tfvars, then edit.
-bucket_name = "your-lab-annotate-data"
+# cp terraform.tfvars.example terraform.tfvars, then fill these in.
+data_url             = "s3://salk-workstation-data-dev-020125249408/spida_dev/cellpose_3d_test/patches/"
+cognito_user_pool_id = "us-west-2_REPLACE_ME"
+site_url             = "https://annotate.REPLACE_ME.workers.dev" # the address Cloudflare gave the site
 
+# cognito_managed_login       = false   # if apply says FeatureUnavailableInTierException
 # instance_type               = "r6i.4xlarge"
 # create_github_oidc_provider = false   # if the account already has it

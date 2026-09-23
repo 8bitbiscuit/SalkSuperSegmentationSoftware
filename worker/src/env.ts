@@ -2,24 +2,34 @@ export interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
 
-  BACKEND: 'aws' | 'mock';
+  // ---- set in the Cloudflare dashboard: Settings -> Variables and Secrets ----
+  // `terraform output` in infra/ prints the first five.
+  DATA_URL?: string;               // s3://bucket/folder/ holding the brain regions
+  COGNITO_USER_POOL_ID?: string;   // e.g. us-west-2_AbC123xyz
+  COGNITO_CLIENT_ID?: string;
+  COGNITO_CLIENT_SECRET?: string;  // secret
+  AWS_ROLE_ARN?: string;           // the role signed-in users act through
+  // Desktops, once there is a domain on Cloudflare:
+  CF_API_TOKEN?: string;           // secret
+  DESKTOP_HOSTNAME?: string;       // e.g. annotate-{id}.example.org
+  // Optional:
+  CHANNEL?: string;                // default DAPI_decon: images are <folder>/<CHANNEL>_z<N>.tif
+  IDLE_MINUTES?: string;           // default 30
+  AWS_REGION?: string;             // default: the user pool's region
+
+  // Local development only (npm run dev):
+  BACKEND?: 'mock';
   DEV_EMAIL?: string;
-  SESSION_HOSTNAME: string;
-  IDLE_MINUTES: string;
 
-  AWS_REGION?: string;
-  LAUNCH_TEMPLATE_ID?: string;
+  // ---- filled in by settings.ts from the above ----
   BUCKET?: string;
-  CF_ACCOUNT_ID?: string;
-  CF_ZONE_ID?: string;
-  ACCESS_TEAM_DOMAIN?: string;
-  ACCESS_AUD?: string;
+  DATA_PREFIX?: string;            // folder in the bucket; ends in "/" (or is "")
+}
 
-  // secrets
-  AWS_ACCESS_KEY_ID?: string;
-  AWS_SECRET_ACCESS_KEY?: string;
-  CF_API_TOKEN?: string;
-  DCV_TOKEN_SECRET?: string;
+export interface Creds {
+  accessKeyId: string;
+  secretAccessKey: string;
+  sessionToken?: string;
 }
 
 /** An error whose message is safe to show the user. */
@@ -69,6 +79,8 @@ export interface Cloud {
   requestStop(instanceId: string): Promise<void>;
   terminate(instanceIds: string[]): Promise<void>;
   listMasks(region: string): Promise<MaskFile[]>;
+  /** Subfolders of <DATA_PREFIX><path>/ (not masks/), and how many channel images sit in it. */
+  listFolders(path: string): Promise<{ folders: string[]; images: number }>;
 }
 
 export interface Tunnels {

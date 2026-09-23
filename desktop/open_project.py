@@ -36,7 +36,8 @@ from qtpy.QtWidgets import QApplication
 
 # CONFIG
 # ----------------------------------------------------------------------------
-IMAGES = "images/mosaic_PVARB_z*.tif"  # relative to the region directory
+# relative to the region directory; the cloud desktops set it per channel
+IMAGES = os.environ.get("IMAGES", "images/mosaic_PVARB_z*.tif")
 
 AUTOSAVE_MINUTES = 5
 LABEL_DTYPE = np.uint16  # up to 65,535 labels a region; np.uint32 beyond
@@ -145,7 +146,8 @@ def add_layers(viewer, resume=None):
 
     # cache=False holds the one-slice-at-a-time line: napari otherwise keeps
     # dask slices in a global cache sized at a quarter of total memory.
-    viewer.add_image(image, name="PVALB", colormap="gray", multiscale=False,
+    channel = Path(PVALB_GLOB).name.split("_z")[0]  # mosaic_PVARB, DAPI_decon, ...
+    viewer.add_image(image, name=channel, colormap="gray", multiscale=False,
                      cache=False,
                      contrast_limits=contrast_from(image[len(image) // 2]))
 

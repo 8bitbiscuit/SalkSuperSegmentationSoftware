@@ -1,6 +1,8 @@
-# AWS for the annotation desktops: the data bucket, a small network with no
-# inbound access, the desktop launch template, and three narrow identities
-# (the Worker, the lab server's sync, the AMI build). See README.md.
+# AWS for the annotation desktops: a small network with no inbound access, the
+# desktop launch template, the website's sign-in app in the existing Cognito
+# user pool, a role signed-in users act through, and narrow identities for the
+# desktops and the AMI build. The bucket and the user pool already exist and
+# are only referred to: nothing here changes their settings. See README.md.
 
 terraform {
   required_version = ">= 1.6"
@@ -13,7 +15,7 @@ terraform {
 }
 
 provider "aws" {
-  region = var.region
+  region = local.region
   default_tags {
     tags = { Project = "annotate" }
   }
@@ -22,50 +24,22 @@ provider "aws" {
 data "aws_caller_identity" "me" {}
 
 locals {
+  region = split("_", var.cognito_user_pool_id)[0] # everything lives where the user pool does
+  data   = regex("^s3://([^/]+)/*(.*)$", var.data_url)
+  prefix = local.data[1] == "" ? "" : "${trimsuffix(local.data[1], "/")}/" # <prefix><brain region>/<region>/<fov>/
+  site   = trimsuffix(var.site_url, "/")
+
   account    = data.aws_caller_identity.me.account_id
-  bucket_arn = aws_s3_bucket.data.arn
+  bucket_arn = data.aws_s3_bucket.data.arn
 }
 
-# ---- data: regions/<region>/images/ and regions/<region>/masks/ -------------
-
-resource "aws_s3_bucket" "data" {
-  bucket = var.bucket_name
+# The existing bucket and user pool. Looking them up fails the plan early on a wrong name.
+data "aws_s3_bucket" "data" {
+  bucket = local.data[0]
 }
 
-resource "aws_s3_bucket_public_access_block" "data" {
-  bucket                  = aws_s3_bucket.data.id
-  block_public_acls       = true
-  block_public_policy     = true
-  ignore_public_acls      = true
-  restrict_public_buckets = true
-}
-
-# Every autosave overwrites the session's masks file; versions keep the
-# earlier ones, so a bad save can be rolled back.
-resource "aws_s3_bucket_versioning" "data" {
-  bucket = aws_s3_bucket.data.id
-  versioning_configuration {
-    status = "Enabled"
-  }
-}
-
-resource "aws_s3_bucket_lifecycle_configuration" "data" {
-  bucket     = aws_s3_bucket.data.id
-  depends_on = [aws_s3_bucket_versioning.data]
-
-  rule {
-    id     = "expire-replaced-versions"
-    status = "Enabled"
-    filter {
-      prefix = "regions/"
-    }
-    noncurrent_version_expiration {
-      noncurrent_days = 30
-    }
-    abort_incomplete_multipart_upload {
-      days_after_initiation = 7
-    }
-  }
+data "aws_cognito_user_pool" "pool" {
+  user_pool_id = var.cognito_user_pool_id
 }
 
 # ---- network: outbound only; browsers arrive through Cloudflare Tunnels ----
@@ -176,7 +150,8 @@ resource "aws_launch_template" "desktop" {
   }
 }
 
-# ---- the desktop's own permissions ------------------------------------------
+# ---- the desktop machine's own permissions: only DCV's licence check ---------
+# Everything it does with the bucket, it does as the signed-in user (below).
 
 data "aws_iam_policy_document" "ec2_assume" {
   statement {
@@ -195,29 +170,9 @@ resource "aws_iam_role" "desktop" {
 
 data "aws_iam_policy_document" "desktop" {
   statement {
-    sid       = "ListRegions"
-    actions   = ["s3:ListBucket"]
-    resources = [local.bucket_arn]
-    condition {
-      test     = "StringLike"
-      variable = "s3:prefix"
-      values   = ["regions/*"]
-    }
-  }
-  statement {
-    sid       = "ReadImagesAndMasks"
-    actions   = ["s3:GetObject"]
-    resources = ["${local.bucket_arn}/regions/*"]
-  }
-  statement {
-    sid       = "WriteMasks"
-    actions   = ["s3:PutObject", "s3:AbortMultipartUpload"]
-    resources = ["${local.bucket_arn}/regions/*/masks/*"]
-  }
-  statement {
     sid       = "DcvLicense"
     actions   = ["s3:GetObject"]
-    resources = ["arn:aws:s3:::dcv-license.${var.region}/*"]
+    resources = ["arn:aws:s3:::dcv-license.${local.region}/*"]
   }
 }
 
@@ -231,13 +186,71 @@ resource "aws_iam_instance_profile" "desktop" {
   role = aws_iam_role.desktop.name
 }
 
-# ---- the Cloudflare Worker: launch, watch, stop, list masks -----------------
+# ---- sign-in: the website's app in the existing user pool -------------------
 
-resource "aws_iam_user" "worker" {
-  name = "annotate-worker"
+resource "aws_cognito_user_pool_client" "site" {
+  name                                 = "annotate-site"
+  user_pool_id                         = var.cognito_user_pool_id
+  generate_secret                      = true
+  allowed_oauth_flows_user_pool_client = true
+  allowed_oauth_flows                  = ["code"]
+  allowed_oauth_scopes                 = ["openid", "email", "profile"]
+  supported_identity_providers         = var.cognito_identity_providers
+  callback_urls                        = ["${local.site}/auth/callback"]
+  logout_urls                          = ["${local.site}/"]
+  explicit_auth_flows                  = ["ALLOW_REFRESH_TOKEN_AUTH"]
+  prevent_user_existence_errors        = "ENABLED"
 }
 
-data "aws_iam_policy_document" "worker" {
+# The sign-in page lives on the pool's domain. Made only if the pool has none.
+resource "aws_cognito_user_pool_domain" "site" {
+  count                 = length(compact([data.aws_cognito_user_pool.pool.domain, data.aws_cognito_user_pool.pool.custom_domain])) == 0 ? 1 : 0
+  domain                = "annotate-${local.account}"
+  user_pool_id          = var.cognito_user_pool_id
+  managed_login_version = var.cognito_managed_login ? 2 : 1
+}
+
+# Managed login shows no sign-in page for an app without a style; this is Cognito's default one.
+resource "aws_cognito_managed_login_branding" "site" {
+  count                       = var.cognito_managed_login ? 1 : 0
+  user_pool_id                = var.cognito_user_pool_id
+  client_id                   = aws_cognito_user_pool_client.site.id
+  use_cognito_provided_values = true
+}
+
+# ---- signed-in users: start desktops and use the bucket, in their own name ----
+#
+# The website and each desktop trade the user's Cognito ID token for this
+# role (AssumeRoleWithWebIdentity), with the user's email as the session name.
+# CloudTrail records every call as assumed-role/annotate-user/<email>.
+
+resource "aws_iam_openid_connect_provider" "cognito" {
+  url            = "https://cognito-idp.${local.region}.amazonaws.com/${var.cognito_user_pool_id}"
+  client_id_list = [aws_cognito_user_pool_client.site.id]
+}
+
+data "aws_iam_policy_document" "user_assume" {
+  statement {
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+    principals {
+      type        = "Federated"
+      identifiers = [aws_iam_openid_connect_provider.cognito.arn]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "cognito-idp.${local.region}.amazonaws.com/${var.cognito_user_pool_id}:aud"
+      values   = [aws_cognito_user_pool_client.site.id]
+    }
+  }
+}
+
+resource "aws_iam_role" "user" {
+  name                 = "annotate-user"
+  assume_role_policy   = data.aws_iam_policy_document.user_assume.json
+  max_session_duration = 43200
+}
+
+data "aws_iam_policy_document" "user" {
   statement {
     sid       = "LaunchOnlyFromTheTemplate"
     actions   = ["ec2:RunInstances"]
@@ -267,8 +280,8 @@ data "aws_iam_policy_document" "worker" {
     sid     = "TagAtLaunch"
     actions = ["ec2:CreateTags"]
     resources = [
-      "arn:aws:ec2:${var.region}:${local.account}:instance/*",
-      "arn:aws:ec2:${var.region}:${local.account}:volume/*",
+      "arn:aws:ec2:${local.region}:${local.account}:instance/*",
+      "arn:aws:ec2:${local.region}:${local.account}:volume/*",
     ]
     condition {
       test     = "StringEquals"
@@ -279,7 +292,7 @@ data "aws_iam_policy_document" "worker" {
   statement {
     sid       = "StopAndTerminateDesktops"
     actions   = ["ec2:CreateTags", "ec2:TerminateInstances"]
-    resources = ["arn:aws:ec2:${var.region}:${local.account}:instance/*"]
+    resources = ["arn:aws:ec2:${local.region}:${local.account}:instance/*"]
     condition {
       test     = "StringEquals"
       variable = "aws:ResourceTag/App"
@@ -292,47 +305,30 @@ data "aws_iam_policy_document" "worker" {
     resources = ["*"]
   }
   statement {
-    sid       = "ListMasks"
+    sid       = "ListTheData"
     actions   = ["s3:ListBucket"]
     resources = [local.bucket_arn]
     condition {
       test     = "StringLike"
       variable = "s3:prefix"
-      values   = ["regions/*/masks/*"]
-    }
-  }
-}
-
-resource "aws_iam_user_policy" "worker" {
-  user   = aws_iam_user.worker.name
-  policy = data.aws_iam_policy_document.worker.json
-}
-
-# ---- the lab server: upload images, pull masks -------------------------------
-
-resource "aws_iam_user" "lab_sync" {
-  name = "annotate-lab-sync"
-}
-
-data "aws_iam_policy_document" "lab_sync" {
-  statement {
-    actions   = ["s3:ListBucket"]
-    resources = [local.bucket_arn]
-    condition {
-      test     = "StringLike"
-      variable = "s3:prefix"
-      values   = ["regions/*"]
+      values   = ["${local.prefix}*"]
     }
   }
   statement {
-    actions   = ["s3:GetObject", "s3:PutObject", "s3:AbortMultipartUpload"]
-    resources = ["${local.bucket_arn}/regions/*"]
+    sid       = "ReadImagesAndMasks"
+    actions   = ["s3:GetObject"]
+    resources = ["${local.bucket_arn}/${local.prefix}*"]
+  }
+  statement {
+    sid       = "WriteMasks"
+    actions   = ["s3:PutObject", "s3:AbortMultipartUpload"]
+    resources = ["${local.bucket_arn}/${local.prefix}*/masks/*"]
   }
 }
 
-resource "aws_iam_user_policy" "lab_sync" {
-  user   = aws_iam_user.lab_sync.name
-  policy = data.aws_iam_policy_document.lab_sync.json
+resource "aws_iam_role_policy" "user" {
+  role   = aws_iam_role.user.id
+  policy = data.aws_iam_policy_document.user.json
 }
 
 # ---- GitHub Actions: build the AMI (no stored AWS keys) ----------------------

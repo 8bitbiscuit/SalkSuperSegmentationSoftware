@@ -6,7 +6,24 @@
 > - No session caps or budget alarm (decision 6 in section 10).
 > - DCV tokens are checked by a small verifier of our own
 >   (`desktop/dcv-token-verifier.py`), not `dcvsimpleextauth`.
-> - Cloudflare Access is set up in the dashboard, not in Terraform.
+> - No Cloudflare Access. The site signs people in with the existing Cognito
+>   user pool, then acts on AWS as each user: it trades their Cognito token
+>   for `annotate-user` role credentials named after their email, and so does
+>   their desktop. There are no stored AWS keys at all: the 10-minute
+>   cleanup acts as each desktop's owner, and a desktop whose owner's
+>   sign-in is gone powers itself off once idle.
+> - Deploying is "import the repository into Cloudflare Workers, then add
+>   five settings in the dashboard". The database is created on the first
+>   deploy and the Worker makes its own tables; Terraform creates the
+>   Cognito app client and prints the settings. Sections 3 and 5 still describe an
+>   older, hand-configured deploy.
+> - Images and masks live in the existing bucket
+>   `salk-workstation-data-dev-020125249408`, under
+>   `spida_dev/cellpose_3d_test/patches/<brain region>/<region>/<field of view>/`,
+>   with `DAPI_decon_z*.tif` directly inside and masks saved to `masks/`
+>   beside them. The picker lists the folders live. Terraform only reads
+>   that bucket and never changes its settings, so versioning is up to the
+>   bucket's owner. The `regions/` layout in sections 4 and 5 is out of date.
 > - The AMI is CPU-only until Phase 0 shows a GPU is needed.
 
 Annotators sign in to a website with their organisation account, choose a
@@ -588,10 +605,12 @@ Later, only if the pilot shows the need:
    below it (`s-<id>.annotate.<org>`), the free certificate won't cover
    them, so pick a pattern one level down (`annotate-<id>.<org>`) or add
    Advanced Certificate Manager.
-2. **Sign-in:** Cloudflare Access one-time PIN, emailed to the user. The
-   policy allows emails ending in the organisation's domain.
-3. **Region:** us-west-2. Data may be stored in S3; that is already done
-   today.
+2. **Sign-in:** the existing Cognito user pool, used by the site directly
+   (this replaced the emailed one-time PIN). Anyone who can sign in to the
+   pool gets in. Starting desktops and using the bucket happen as that user.
+3. **Region and data:** us-west-2, and the existing bucket
+   `salk-workstation-data-dev-020125249408`, with regions under
+   `spida_dev/cellpose_3d_test/patches/`.
 4. **Instance type:** from Phase 0.1. Terraform defaults to r6i.4xlarge
    (128 GiB).
 5. **Resuming:** anyone can resume from anyone's masks in the same region.

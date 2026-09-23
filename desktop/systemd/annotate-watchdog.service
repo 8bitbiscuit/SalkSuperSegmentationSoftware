@@ -1,5 +1,7 @@
 [Unit]
 Description=End the session when it is finished, asked to stop, or idle
+# Only on a desktop, not while the image is being built.
+ConditionPathExists=/etc/annotate/session.env
 
 [Service]
 Type=oneshot

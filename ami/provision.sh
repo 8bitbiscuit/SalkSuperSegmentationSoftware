@@ -49,7 +49,7 @@ install -m 0644 /tmp/desktop/dcv.conf /etc/dcv/dcv.conf
 install -m 0644 -t /etc/systemd/system /tmp/desktop/systemd/*
 
 systemctl daemon-reload
-systemctl enable dcvserver.service annotate-session.service
+systemctl enable dcvserver.service annotate-session.service annotate-watchdog.timer
 
 # Leave nothing of the build box behind.
 rm -rf /tmp/desktop /tmp/nice-dcv-* /tmp/aws /tmp/awscliv2.zip /tmp/*.deb

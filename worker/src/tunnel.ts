@@ -6,18 +6,22 @@ interface CfResponse<T> {
   result: T;
 }
 
+const API = 'https://api.cloudflare.com/client/v4';
+const zones = new Map<string, Promise<{ zone: string; account: string }>>();
+
 /**
  * One Cloudflare Tunnel per desktop, routed to DCV on the instance
  * (https://localhost:8443), plus the proxied DNS record that points at it.
  * The instance runs cloudflared with the tunnel's token, so it needs no
  * inbound ports and no certificate.
+ *
+ * Needs only CF_API_TOKEN and DESKTOP_HOSTNAME; the zone and account are
+ * looked up. Checked when a tunnel is made, not before: signing in and
+ * browsing folders work before there is a domain.
  */
 export function cloudflareTunnels(env: Env): Tunnels {
-  need(env, 'CF_API_TOKEN', 'CF_ACCOUNT_ID', 'CF_ZONE_ID');
-  const tunnels = `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/cfd_tunnel`;
-  const records = `https://api.cloudflare.com/client/v4/zones/${env.CF_ZONE_ID}/dns_records`;
-
   async function cf<T>(method: string, url: string, body?: unknown): Promise<T> {
+    need(env, 'CF_API_TOKEN', 'DESKTOP_HOSTNAME');
     const res = await fetch(url, {
       method,
       headers: { authorization: `Bearer ${env.CF_API_TOKEN}`, 'content-type': 'application/json' },
@@ -31,8 +35,33 @@ export function cloudflareTunnels(env: Env): Tunnels {
     return data.result;
   }
 
+  /** The zone the desktop hostnames live in, and its account: the closest parent domain the token can see. */
+  function where() {
+    const host = env.DESKTOP_HOSTNAME ?? '';
+    let p = zones.get(host);
+    if (!p) {
+      p = (async () => {
+        const labels = host.split('.').slice(1);   // drop the label holding {id}
+        for (let i = 0; i < labels.length - 1; i++) {
+          const name = labels.slice(i).join('.');
+          const found = await cf<{ id: string; name: string; account: { id: string } }[]>(
+            'GET', `${API}/zones?name=${encodeURIComponent(name)}`);
+          const zone = found.find((z) => z.name === name);
+          if (zone) return { zone: zone.id, account: zone.account.id };
+        }
+        throw new Error(`CF_API_TOKEN can't see a Cloudflare zone for ${host.replace('{id}', '…')}`);
+      })();
+      p.catch(() => zones.delete(host));
+      zones.set(host, p);
+    }
+    return p;
+  }
+  const tunnelsUrl = async () => `${API}/accounts/${(await where()).account}/cfd_tunnel`;
+  const recordsUrl = async () => `${API}/zones/${(await where()).zone}/dns_records`;
+
   return {
     async create(name, hostname) {
+      const tunnels = await tunnelsUrl();
       const tunnel = await cf<{ id: string }>('POST', tunnels, { name, config_src: 'cloudflare' });
       await cf('PUT', `${tunnels}/${tunnel.id}/configurations`, {
         config: {
@@ -43,7 +72,7 @@ export function cloudflareTunnels(env: Env): Tunnels {
           ],
         },
       });
-      await cf('POST', records, {
+      await cf('POST', await recordsUrl(), {
         type: 'CNAME', name: hostname, content: `${tunnel.id}.cfargotunnel.com`, proxied: true, comment: name,
       });
       const token = await cf<string>('GET', `${tunnels}/${tunnel.id}/token`);
@@ -51,16 +80,18 @@ export function cloudflareTunnels(env: Env): Tunnels {
     },
 
     async healthy(tunnelId) {
-      const tunnel = await cf<{ status: string }>('GET', `${tunnels}/${tunnelId}`);
+      const tunnel = await cf<{ status: string }>('GET', `${await tunnelsUrl()}/${tunnelId}`);
       return tunnel.status === 'healthy';
     },
 
     async remove(name, hostname) {
       // Filter again here: an ignored query parameter must never mean "delete everything".
+      const records = await recordsUrl();
       const dns = await cf<{ id: string; name: string }[]>('GET', `${records}?name=${encodeURIComponent(hostname)}`);
       for (const r of dns.filter((r) => r.name === hostname)) {
         await cf('DELETE', `${records}/${r.id}`);
       }
+      const tunnels = await tunnelsUrl();
       const found = await cf<{ id: string; name: string }[]>(
         'GET', `${tunnels}?name=${encodeURIComponent(name)}&is_deleted=false`);
       for (const t of found.filter((t) => t.name === name)) {

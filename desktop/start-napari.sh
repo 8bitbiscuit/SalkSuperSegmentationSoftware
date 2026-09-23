@@ -4,6 +4,7 @@
 # exits, the watchdog sees session-done and powers the instance off.
 set -a; . /etc/annotate/session.env; set +a
 export USER=$ANNOTATOR   # open_project.py names the masks after $USER
+export IMAGES="images/${CHANNEL}_z*.tif"
 run=/run/annotate
 log=$run/napari.log
 

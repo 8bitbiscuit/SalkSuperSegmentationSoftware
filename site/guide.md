@@ -5,19 +5,23 @@ permalink: /guide/
 ---
 # How to annotate
 
-Each session is a desktop in the cloud with napari already open on one region.
-It is yours alone, it saves your masks as you go, and it shuts itself down
-when you're done.
+Each session is a desktop in the cloud with napari already open on one field
+of view. It is yours alone, it saves your masks as you go, and it shuts itself
+down when you're done. It reads the images and saves the masks under your own
+sign-in.
 
 ## Start
 
-1. On the [session page]({{ '/' | relative_url }}), pick a **region**.
+1. On the [session page]({{ '/' | relative_url }}), pick a **brain region**,
+   then a **region**, then a **field of view**. The page remembers your last
+   choice.
 2. Pick the **masks to start from**: empty, or any saved masks file for that
-   region, yours or anyone else's. Your newest is picked for you.
+   field of view, yours or anyone else's. Your newest is picked for you.
 3. Click **Start session**. The desktop takes 2–4 minutes to come up. The page
    updates by itself.
 4. Click **Open desktop**. It opens in a new tab with napari showing two
-   layers: **PVALB** (the image) and **masks** (what you paint).
+   layers: the image, named after its channel (for example **DAPI_decon**),
+   and **masks** (what you paint).
 
 Resuming never changes the file you pick. Its labels are copied into a new
 masks file with your name on it.
@@ -61,7 +65,7 @@ undone.
 ## Finish
 
 Either close napari in the desktop, or click **End session** on the session
-page. Both save first. A large region can take a few minutes to save, and
+page. Both save first. A large field of view can take a few minutes to save, and
 the session page shows **Saving your masks and shutting down…** until it's done.
 
 If you walk away, the desktop disconnects you after 60 minutes without input.
@@ -77,7 +81,7 @@ later, start a new session and resume from your newest masks.
 
 ## When something goes wrong
 
-- **napari can't open the region:** a message box in the desktop shows the
+- **napari can't open the field of view:** a message box in the desktop shows the
   error. The session ends when you click OK.
 - **The session page says the session failed:** the reason is shown there.
   Start again, and if it keeps failing, send the message to whoever runs

@@ -1,20 +1,17 @@
-output "bucket" {
-  description = "worker/wrangler.jsonc BUCKET"
-  value       = aws_s3_bucket.data.bucket
+output "cloudflare_settings" {
+  description = "Add each one in Cloudflare: Workers & Pages -> annotate -> Settings -> Variables and Secrets"
+  value = {
+    DATA_URL             = var.data_url
+    COGNITO_USER_POOL_ID = var.cognito_user_pool_id
+    COGNITO_CLIENT_ID    = aws_cognito_user_pool_client.site.id
+    AWS_ROLE_ARN         = aws_iam_role.user.arn
+  }
 }
 
-output "launch_template_id" {
-  description = "worker/wrangler.jsonc LAUNCH_TEMPLATE_ID"
-  value       = aws_launch_template.desktop.id
-}
-
-output "worker_user" {
-  description = "Make its access key with: aws iam create-access-key --user-name <this>"
-  value       = aws_iam_user.worker.name
-}
-
-output "lab_sync_user" {
-  value = aws_iam_user.lab_sync.name
+output "cognito_client_secret" {
+  description = "The last setting, COGNITO_CLIENT_SECRET (add it as a Secret): terraform output -raw cognito_client_secret"
+  value       = aws_cognito_user_pool_client.site.client_secret
+  sensitive   = true
 }
 
 output "ami_build_role_arn" {

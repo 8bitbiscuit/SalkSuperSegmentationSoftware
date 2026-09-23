@@ -1,0 +1,6 @@
+[Unit]
+Description=Fetch a fresh Cognito ID token for this desktop's user
+
+[Service]
+Type=oneshot
+ExecStart=/opt/annotate/refresh-token.sh

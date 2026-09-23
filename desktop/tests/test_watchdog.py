@@ -14,8 +14,10 @@ import pytest
 WATCHDOG = Path(__file__).resolve().parent.parent / "watchdog.sh"
 
 FAKES = {
-    # DCV_OUT is what `dcv list-connections --json` prints; unset, dcv fails.
-    "dcv": '[ -n "${DCV_OUT+x}" ] || exit 1; printf "%s" "$DCV_OUT"',
+    # DCV_OUT is what `dcv list-connections --json` prints; unset, it fails.
+    # NO_SESSION=1: the DCV session was never made.
+    "dcv": 'case "$1" in describe-session) [ "${NO_SESSION:-0}" = 0 ] ;;'
+           ' *) [ -n "${DCV_OUT+x}" ] || exit 1; printf "%s" "$DCV_OUT" ;; esac',
     # Instance metadata: a token, and the Stop tag only when STOP_TAG=1.
     "curl": 'case "$*" in *api/token*) echo tok ;; *tags/instance/Stop*) [ "${STOP_TAG:-0}" = 1 ] || exit 22 ;; esac',
     "systemctl": 'echo "$*" >> "$CALLS"',
@@ -37,9 +39,10 @@ def box(tmp_path):
 
 def watchdog(box, *, connected_minutes_ago=0, **env):
     last = box / "run/last-connected"
-    last.touch()
-    past = time.time() - connected_minutes_ago * 60
-    os.utime(last, (past, past))
+    if connected_minutes_ago is not None:
+        last.touch()
+        past = time.time() - connected_minutes_ago * 60
+        os.utime(last, (past, past))
     result = subprocess.run(
         ["bash", str(WATCHDOG)], capture_output=True, text=True, timeout=30,
         env={**os.environ, "PATH": f"{box / 'bin'}:{os.environ['PATH']}",
@@ -80,3 +83,12 @@ def test_unreadable_connections_count_as_connected(box):
         off, out = watchdog(box, connected_minutes_ago=45, **dcv_out)
         assert not off, dcv_out
         assert "treating the session as in use" in out
+
+
+def test_a_boot_that_never_made_a_dcv_session_still_times_out(box):
+    # First check: the idle clock starts.
+    assert watchdog(box, connected_minutes_ago=None, NO_SESSION="1") == (False, "")
+    assert (box / "run/last-connected").exists()
+    # Idle minutes later, with still no session: power off.
+    off, out = watchdog(box, connected_minutes_ago=45, NO_SESSION="1")
+    assert off and "no one connected for 30 minutes" in out

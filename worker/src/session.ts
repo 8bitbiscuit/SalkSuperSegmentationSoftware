@@ -21,17 +21,23 @@ export function hostnameFor(template: string, id: string): string {
 
 export const tunnelName = (id: string) => `annotate-${id}`;
 
-/** What the desktop's token verifier accepts: HMAC(secret, session id), base64url. */
-export async function dcvToken(secret: string, session: string): Promise<string> {
+/**
+ * HMAC-SHA256(secret, message), base64url. The desktop's DCV token is
+ * hmacToken(secret, id); the key it fetches Cognito tokens with is
+ * hmacToken(secret, `desktop:${id}`).
+ */
+export async function hmacToken(secret: string, message: string): Promise<string> {
   const key = await crypto.subtle.importKey(
     'raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  const mac = new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(session)));
+  const mac = new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(message)));
   return btoa(String.fromCharCode(...mac)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-export const REGION_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+// A region is a folder under DATA_PREFIX, possibly nested ("THM1" or
+// "THM1/patch_03"). No segment may start with "." so ".." can't climb out.
+export const REGION_ID = /^(?=.{1,256}$)[A-Za-z0-9][A-Za-z0-9._-]*(\/[A-Za-z0-9][A-Za-z0-9._-]*)*$/;
 
-export const masksPrefix = (region: string) => `regions/${region}/masks/`;
+export const masksPrefix = (dataPrefix: string | undefined, region: string) => `${dataPrefix ?? ''}${region}/masks/`;
 
 const MASKS_NAME = /^([A-Za-z0-9._-]+?)_(\d{8}T\d{6})_masks\.tif(?:\.gz)?$/;
 

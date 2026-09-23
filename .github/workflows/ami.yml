@@ -1,0 +1,28 @@
+# Builds the desktop AMI and points new sessions at it. Run it by hand after
+# changing desktop/ or ami/. Sessions already running keep their old image.
+name: Build desktop AMI
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write   # AWS credentials through GitHub's OIDC; no stored keys
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_AMI_BUILD_ROLE_ARN }}
+          aws-region: us-west-2
+      - uses: hashicorp/setup-packer@main
+      - run: packer init ami && packer build ami
+      - name: Point new sessions at the new image
+        run: |
+          ami=$(jq -r '.builds[-1].artifact_id | split(":")[1]' ami/manifest.json)
+          aws ssm put-parameter --name /annotate/ami --type String --data-type aws:ec2:image \
+            --value "$ami" --overwrite
+          echo "New sessions will boot $ami" >> "$GITHUB_STEP_SUMMARY"

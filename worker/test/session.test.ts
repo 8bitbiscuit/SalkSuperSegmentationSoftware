@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  dcvToken, hostnameFor, newSessionId, parseMasksName, REGION_ID, userData, usernameOf,
+  hmacToken, hostnameFor, newSessionId, parseMasksName, REGION_ID, userData, usernameOf,
 } from '../src/session.ts';
 
 test('session ids are 10 hostname-safe characters', () => {
@@ -26,17 +26,17 @@ test('masks names parse the way open_project.py writes them', () => {
   assert.equal(parseMasksName('notes.txt'), null);
 });
 
-test('region ids cannot climb out of their folder', () => {
-  assert.ok(REGION_ID.test('region_UCI-5224'));
-  assert.ok(!REGION_ID.test('../secrets'));
-  assert.ok(!REGION_ID.test('a/b'));
-  assert.ok(!REGION_ID.test(''));
+test('region ids are folders, maybe nested, that cannot climb out', () => {
+  for (const ok of ['THM1', 'MTC_REPEAT', 'VePo', 'THM1/patch_03', 'a/b/c']) assert.ok(REGION_ID.test(ok), ok);
+  for (const bad of ['', '../secrets', 'THM1/..', 'THM1/.hidden', '/THM1', 'THM1/', 'a//b', 'a b', 'x'.repeat(257)]) {
+    assert.ok(!REGION_ID.test(bad), bad);
+  }
 });
 
-test('the DCV token is HMAC-SHA256 of the session id, base64url', async () => {
+test('tokens are HMAC-SHA256 of the message, base64url', async () => {
   // python3 -c "import hmac,hashlib,base64; print(base64.urlsafe_b64encode(
   //   hmac.new(b'secret', b'abcdefghij', hashlib.sha256).digest()).rstrip(b'='))"
-  assert.equal(await dcvToken('secret', 'abcdefghij'), 'MANDtVyZaSU4cui2EQTqHyl6Xr3pEY7wM1z_1K6yyMU');
+  assert.equal(await hmacToken('secret', 'abcdefghij'), 'MANDtVyZaSU4cui2EQTqHyl6Xr3pEY7wM1z_1K6yyMU');
 });
 
 test('user data writes a public and a private env file', () => {

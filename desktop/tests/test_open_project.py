@@ -61,8 +61,10 @@ def region(tmp_path):
     return tmp_path
 
 
-def start(region, how, *args):
+def start(region, how, *args, images=None):
     env = {**os.environ, "USER": "tester"}
+    if images:
+        env["IMAGES"] = images
     return subprocess.Popen(
         [sys.executable, "-c", DRIVER, str(SCRIPT_DIR), how, str(region), *args],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env)
@@ -126,3 +128,15 @@ def test_resumed_masks_carry_over_to_a_new_file(region):
 def test_nothing_painted_writes_nothing(region):
     finish(start(region, "untouched"))
     assert not list((region / "masks").glob("*.tif.gz"))
+
+
+def test_images_can_come_from_the_environment(tmp_path):
+    # How the cloud desktops run it: the field-of-view folder is images/, and
+    # IMAGES picks the channel.
+    (tmp_path / "images").mkdir()
+    for z in range(3):
+        tifffile.imwrite(tmp_path / f"images/DAPI_decon_z{z}.tif", np.full((64, 64), 7, np.uint16))
+    tifffile.imwrite(tmp_path / "images/PVALB_decon_z0.tif", np.zeros((32, 32), np.uint16))  # other channel: ignored
+    out = finish(start(tmp_path, "close", images="images/DAPI_decon_z*.tif"))
+    assert "annotating (3, 64, 64)" in out
+    assert_painted(saved_masks(tmp_path))

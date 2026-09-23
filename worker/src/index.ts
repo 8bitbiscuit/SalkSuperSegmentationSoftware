@@ -1,36 +1,87 @@
-import { identify } from './access.ts';
-import { awsCloud } from './aws.ts';
-import { HttpError, json, type Backend, type Env } from './env.ts';
+import { currentLogin, handleAuth, idToken, type Login } from './auth.ts';
+import { awsCloud, sessionName, userCredentials } from './aws.ts';
+import { HttpError, json, type Backend, type Creds, type Env } from './env.ts';
 import { finish, liveSession, reap, refresh, update, type Row } from './lifecycle.ts';
 import { mockBackend, mockDesktopPage } from './mock.ts';
+import { desktopSecret, ensureSchema } from './schema.ts';
 import {
-  dcvToken, hostnameFor, masksPrefix, newSessionId, parseMasksName, REGION_ID, tunnelName, userData, usernameOf,
+  hmacToken, hostnameFor, masksPrefix, newSessionId, parseMasksName, REGION_ID, tunnelName, userData, usernameOf,
 } from './session.ts';
+import { missingSettings, setupPage, withSettings } from './settings.ts';
 import { cloudflareTunnels } from './tunnel.ts';
 
 // The DCV session every desktop runs; the web client's URL fragment names it.
 const DCV_SESSION = 'annotate';
+// Where the desktop keeps the signed-in user's current Cognito ID token.
+const TOKEN_FILE = '/run/annotate-token/id-token';   // a root-only folder
 
-function backend(env: Env): Backend {
-  if (env.BACKEND === 'mock') return mockBackend;
+function backend(env: Env, creds: Creds | null): Backend {
+  if (env.BACKEND === 'mock') return mockBackend(env);
   return {
-    cloud: awsCloud(env),
+    cloud: awsCloud(env, creds!),
     tunnels: cloudflareTunnels(env),
     desktopUrl: (hostname, _session, token) =>
       `https://${hostname}/?authToken=${encodeURIComponent(token)}#${DCV_SESSION}`,
   };
 }
 
-function tokenSecret(env: Env): string {
-  if (env.DCV_TOKEN_SECRET) return env.DCV_TOKEN_SECRET;
-  if (env.BACKEND === 'mock') return 'local-development-only';
-  throw new Error('Worker is missing the DCV_TOKEN_SECRET secret');
+/** The session owner's AWS view, from their sign-in; null if that sign-in can't be used any more. */
+async function asOwner(env: Env, row: Row): Promise<Backend | null> {
+  if (env.BACKEND === 'mock') return mockBackend(env);
+  const login = row.login_id
+    ? await env.DB.prepare('SELECT * FROM logins WHERE id = ?').bind(row.login_id).first<Login>()
+    : null;
+  if (!login) return null;
+  try {
+    return backend(env, await userCredentials(env, login.email, await idToken(env, login)));
+  } catch {
+    return null;
+  }
+}
+
+interface User {
+  email: string;
+  login: Login | null;   // null only for the pretend cloud
+  creds: Creds | null;   // AWS credentials in the user's own name
+}
+
+/** Who is asking, with AWS credentials in their name. */
+async function signedIn(req: Request, env: Env): Promise<User> {
+  if (env.BACKEND === 'mock') {
+    // The pretend cloud has no sign-in. Refuse to run it anywhere but localhost.
+    const host = new URL(req.url).hostname;
+    if (host !== 'localhost' && host !== '127.0.0.1') throw new Error('BACKEND=mock is for local development only');
+    return { email: env.DEV_EMAIL || 'dev.user@example.org', login: null, creds: null };
+  }
+  const login = await currentLogin(req, env);
+  if (!login) throw new HttpError(401, 'Please sign in.');
+  return { email: login.email, login, creds: await userCredentials(env, login.email, await idToken(env, login)) };
 }
 
 export default {
-  async fetch(req, env): Promise<Response> {
+  async fetch(req, rawEnv): Promise<Response> {
     const url = new URL(req.url);
-    if (!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(req);
+    const env = withSettings(rawEnv);
+
+    // Until the dashboard has the required settings, every page says which are missing.
+    const missing = missingSettings(env);
+    if (missing.length) {
+      return url.pathname.startsWith('/api/')
+        ? json({ error: `The site isn't set up yet. Missing: ${missing.join(', ')}.` }, 503)
+        : setupPage(missing);
+    }
+    await ensureSchema(env.DB);
+
+    if (url.pathname.startsWith('/auth/')) {
+      return env.BACKEND === 'mock' ? Response.redirect(new URL('/', url).toString(), 302) : handleAuth(req, env, url);
+    }
+    if (!url.pathname.startsWith('/api/')) {
+      // Every page is for signed-in people only.
+      if (env.BACKEND !== 'mock' && !(await currentLogin(req, env))) {
+        return Response.redirect(new URL('/auth/login', url).toString(), 302);
+      }
+      return env.ASSETS.fetch(req);
+    }
 
     try {
       // Browsers always send Origin on cross-site POST/DELETE; refuse those.
@@ -38,14 +89,18 @@ export default {
       if (req.method !== 'GET' && origin && origin !== url.origin) {
         throw new HttpError(403, 'Cross-site request refused.');
       }
-      const email = await identify(req, env);
-      const b = backend(env);
+      // The desktop asks with its own key, not a browser sign-in.
+      if (req.method === 'GET' && url.pathname === '/api/desktop/token') return await desktopToken(req, env, url);
+
+      const user = await signedIn(req, env);
+      const b = backend(env, user.creds);
 
       switch (`${req.method} ${url.pathname}`) {
-        case 'GET /api/state': return json(await getState(env, b, email));
-        case 'GET /api/masks': return json(await listMasks(req, env, b, email, url.searchParams.get('region')));
-        case 'POST /api/session': return json(await startSession(req, env, b, email), 202);
-        case 'DELETE /api/session': return json(await endSession(env, b, email), 202);
+        case 'GET /api/state': return json(await getState(env, b, user.email));
+        case 'GET /api/folders': return json(await listFolders(env, b, url.searchParams.get('path') ?? ''));
+        case 'GET /api/masks': return json(await listMasks(env, b, user.email, url.searchParams.get('region')));
+        case 'POST /api/session': return json(await startSession(req, env, b, user), 202);
+        case 'DELETE /api/session': return json(await endSession(env, b, user.email), 202);
         case 'GET /api/dev/desktop':
           if (env.BACKEND === 'mock') return mockDesktopPage(url);
       }
@@ -57,8 +112,11 @@ export default {
     }
   },
 
-  async scheduled(_controller, env, ctx) {
-    ctx.waitUntil(reap(env, backend(env)));
+  async scheduled(_controller, rawEnv, ctx) {
+    const env = withSettings(rawEnv);
+    if (missingSettings(env).length) return;
+    ctx.waitUntil(ensureSchema(env.DB).then(() =>
+      reap(env, (row) => asOwner(env, row), env.BACKEND === 'mock' ? mockBackend(env).tunnels : cloudflareTunnels(env))));
   },
 } satisfies ExportedHandler<Env>;
 
@@ -78,15 +136,20 @@ async function getState(env: Env, b: Backend, email: string) {
 
   return {
     user: { email, username: usernameOf(email) },
-    signout: env.BACKEND === 'mock' ? null : '/cdn-cgi/access/logout',
+    signout: env.BACKEND === 'mock' ? null : '/auth/logout',
     session: live ? await view(env, b, live) : null,
     last: last && { region: last.region, state: last.state, error: last.error, ready_at: last.ready_at, ended_at: last.ended_at },
   };
 }
 
-async function listMasks(req: Request, env: Env, b: Backend, email: string, region: unknown) {
-  const id = await requireRegion(req, env, region);
-  const prefix = masksPrefix(id);
+async function listFolders(env: Env, b: Backend, path: string) {
+  if (path && !REGION_ID.test(path)) throw new HttpError(400, 'Unknown folder.');
+  return { channel: env.CHANNEL, ...(await b.cloud.listFolders(path)) };
+}
+
+async function listMasks(env: Env, b: Backend, email: string, region: unknown) {
+  const id = await requireFolder(env, b, region);
+  const prefix = masksPrefix(env.DATA_PREFIX, id);
   const masks = (await b.cloud.listMasks(id))
     .flatMap((f) => {
       const name = f.key.slice(prefix.length);
@@ -97,33 +160,39 @@ async function listMasks(req: Request, env: Env, b: Backend, email: string, regi
   return { username: usernameOf(email), masks };
 }
 
-async function startSession(req: Request, env: Env, b: Backend, email: string) {
+async function startSession(req: Request, env: Env, b: Backend, user: User) {
+  // Before any record exists: without these a half-made session couldn't be cleaned up.
+  if (env.BACKEND !== 'mock' && !(env.CF_API_TOKEN && env.DESKTOP_HOSTNAME)) {
+    throw new HttpError(503, "Desktops can't start yet: the site needs CF_API_TOKEN and DESKTOP_HOSTNAME (README, desktops step).");
+  }
   const body = await req.json().catch(() => null) as { region?: unknown; resume_key?: unknown } | null;
-  const region = await requireRegion(req, env, body?.region);
+  const region = await requireFolder(env, b, body?.region);
+  const email = user.email;
 
   let resume: string | null = null;
   if (body?.resume_key) {
     const key = body.resume_key;
-    // Anyone may resume anyone's masks, but only a masks file of this region.
+    // Anyone may resume anyone's masks, but only a masks file of this folder.
     if (typeof key !== 'string' || !(await b.cloud.listMasks(region)).some((f) => f.key === key)) {
-      throw new HttpError(400, 'That masks file is not in this region any more. Reload the page.');
+      throw new HttpError(400, 'That masks file is not in this folder any more. Reload the page.');
     }
     resume = key;
   }
 
-  const secret = tokenSecret(env);
+  const secret = await desktopSecret(env.DB);
   const id = newSessionId();
   const row: Row = {
     id, email, username: usernameOf(email), region, resume_key: resume,
-    hostname: hostnameFor(env.SESSION_HOSTNAME, id), state: 'starting',
+    hostname: hostnameFor(env.DESKTOP_HOSTNAME!, id), state: 'starting',
     tunnel_id: null, instance_id: null, error: null,
     created_at: Date.now(), ready_at: null, stop_requested_at: null, ended_at: null,
+    login_id: user.login?.id ?? null,
   };
 
   try {
-    await env.DB.prepare(`INSERT INTO sessions (id, email, username, region, resume_key, hostname, state, created_at)
-                          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-      .bind(row.id, row.email, row.username, row.region, row.resume_key, row.hostname, row.state, row.created_at)
+    await env.DB.prepare(`INSERT INTO sessions (id, email, username, region, resume_key, hostname, state, created_at, login_id)
+                          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .bind(row.id, row.email, row.username, row.region, row.resume_key, row.hostname, row.state, row.created_at, row.login_id)
       .run();
   } catch (err) {
     if (String(err).includes('UNIQUE')) throw new HttpError(409, 'You already have a session. Reload the page to see it.');
@@ -144,17 +213,28 @@ async function startSession(req: Request, env: Env, b: Backend, email: string) {
           REGION: region,
           RESUME_KEY: resume ?? '',
           BUCKET: env.BUCKET ?? '',
+          DATA_PREFIX: env.DATA_PREFIX!,
+          CHANNEL: env.CHANNEL!,
+          SITE_URL: new URL(req.url).origin,
           AWS_REGION: env.AWS_REGION ?? '',
-          IDLE_MINUTES: env.IDLE_MINUTES,
+          // The desktop reaches the bucket as this user too (AssumeRoleWithWebIdentity).
+          AWS_ROLE_ARN: env.AWS_ROLE_ARN ?? '',
+          AWS_ROLE_SESSION_NAME: sessionName(email),
+          AWS_WEB_IDENTITY_TOKEN_FILE: TOKEN_FILE,
+          IDLE_MINUTES: env.IDLE_MINUTES!,
         },
-        { TUNNEL_TOKEN: tunnel.token, DCV_TOKEN: await dcvToken(secret, id) },
+        {
+          TUNNEL_TOKEN: tunnel.token,
+          DCV_TOKEN: await hmacToken(secret, id),
+          DESKTOP_KEY: await hmacToken(secret, `desktop:${id}`),
+        },
       ),
     });
     await update(env.DB, id, { instance_id: row.instance_id });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     // If this cleanup fails too, the row stays live and the reaper retries it.
-    await finish(env, b, row, 'failed', message).catch((e) => console.error(`cleanup of ${id} failed:`, e));
+    await finish(env, b.tunnels, row, 'failed', message).catch((e) => console.error(`cleanup of ${id} failed:`, e));
     throw new HttpError(502, `Could not start the desktop: ${message}`);
   }
   return { session: await view(env, b, row) };
@@ -168,7 +248,7 @@ async function endSession(env: Env, b: Backend, email: string) {
   if (row.state === 'starting' || !instance) {
     // Never reachable yet, so nothing painted: stop it outright.
     if (instance) await b.cloud.terminate([instance.id]);
-    await finish(env, b, row, 'ended', null);
+    await finish(env, b.tunnels, row, 'ended', null);
     return { session: null };
   }
 
@@ -178,6 +258,25 @@ async function endSession(env: Env, b: Backend, email: string) {
     await update(env.DB, row.id, { state: 'stopping', stop_requested_at: Date.now() });
   }
   return { session: await view(env, b, { ...row, state: 'stopping' }) };
+}
+
+/**
+ * A running desktop's current Cognito ID token for its user, so it can keep
+ * reading images and saving masks as them. Asked for every 15 minutes with
+ * the key the desktop was started with. It works after the user signs out
+ * of the website, so a desktop mid-session can still save.
+ */
+async function desktopToken(req: Request, env: Env, url: URL): Promise<Response> {
+  const id = url.searchParams.get('session') ?? '';
+  const given = new TextEncoder().encode((req.headers.get('authorization') ?? '').replace(/^Bearer /, ''));
+  const row = await env.DB.prepare('SELECT * FROM sessions WHERE id = ? AND ended_at IS NULL').bind(id).first<Row>();
+  const expected = new TextEncoder().encode(await hmacToken(await desktopSecret(env.DB), `desktop:${id}`));
+  if (!row?.login_id || given.byteLength !== expected.byteLength || !crypto.subtle.timingSafeEqual(given, expected)) {
+    throw new HttpError(403, 'Not a running desktop.');
+  }
+  const login = await env.DB.prepare('SELECT * FROM logins WHERE id = ?').bind(row.login_id).first<Login>();
+  if (!login) throw new HttpError(403, 'The sign-in behind this desktop is gone.');
+  return new Response(await idToken(env, login), { headers: { 'content-type': 'text/plain', 'cache-control': 'no-store' } });
 }
 
 // ---- helpers ----------------------------------------------------------------
@@ -190,17 +289,15 @@ async function view(env: Env, b: Backend, row: Row) {
     resume_key: row.resume_key,
     created_at: row.created_at,
     ready_at: row.ready_at,
-    url: row.state === 'ready' ? b.desktopUrl(row.hostname, row.id, await dcvToken(tokenSecret(env), row.id)) : null,
+    url: row.state === 'ready' ? b.desktopUrl(row.hostname, row.id, await hmacToken(await desktopSecret(env.DB), row.id)) : null,
   };
 }
 
-/** The region must be listed in site/_data/regions.yml, which the build publishes as /regions.json. */
-async function requireRegion(req: Request, env: Env, id: unknown): Promise<string> {
-  if (typeof id === 'string' && REGION_ID.test(id)) {
-    const res = await env.ASSETS.fetch(new URL('/regions.json', req.url));
-    if (!res.ok) throw new Error('regions.json is missing from the site build');
-    const regions = await res.json() as { id: string }[];
-    if (regions.some((r) => r.id === id)) return id;
+/** A folder under DATA_PREFIX that holds the channel's z-slices, checked in the bucket as the user. */
+async function requireFolder(env: Env, b: Backend, id: unknown): Promise<string> {
+  if (typeof id !== 'string' || !REGION_ID.test(id)) throw new HttpError(400, 'Unknown folder.');
+  if (!(await b.cloud.listFolders(id)).images) {
+    throw new HttpError(400, `There are no ${env.CHANNEL}_z*.tif images in ${id}.`);
   }
-  throw new HttpError(400, 'Unknown region.');
+  return id;
 }

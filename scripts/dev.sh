@@ -8,4 +8,4 @@ cd "$(dirname "$0")/.."
 (cd site && bundle exec jekyll build --quiet)   # wrangler needs site/_site to exist
 trap 'kill 0' EXIT
 (cd site && bundle exec jekyll build --watch --quiet) &
-cd worker && npm run dev
+npm run dev

@@ -1,5 +1,0 @@
----
-layout: null
-permalink: /regions.json
----
-{{ site.data.regions | jsonify }}

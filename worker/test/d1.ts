@@ -1,11 +1,10 @@
-// The slice of D1 the Worker uses, over node:sqlite, with the real migrations.
-import { readdirSync, readFileSync } from 'node:fs';
+// The slice of D1 the Worker uses, over node:sqlite, with the Worker's own schema.
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
+import { SCHEMA } from '../src/schema.ts';
 
 export function fakeD1(): D1Database {
   const db = new DatabaseSync(':memory:');
-  const dir = new URL('../migrations/', import.meta.url);
-  for (const file of readdirSync(dir).sort()) db.exec(readFileSync(new URL(file, dir), 'utf8'));
+  for (const sql of SCHEMA) db.exec(sql);
 
   const prepare = (sql: string) => {
     let args: SQLInputValue[] = [];
@@ -17,5 +16,10 @@ export function fakeD1(): D1Database {
     };
     return statement;
   };
-  return { prepare } as unknown as D1Database;
+  const batch = async (statements: { run(): Promise<unknown> }[]) => {
+    const out = [];
+    for (const s of statements) out.push(await s.run());
+    return out;
+  };
+  return { prepare, batch } as unknown as D1Database;
 }

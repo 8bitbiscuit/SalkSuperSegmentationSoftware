@@ -12,10 +12,18 @@ install -d -o annotate -g annotate "$run" /session "$region_dir" "$region_dir/im
 # them off instance metadata: no role credentials, no user data (tunnel token).
 iptables -I OUTPUT -m owner --uid-owner annotate -d 169.254.169.254 -j REJECT
 
-# The layout open_project.py expects: images/ read-only straight from S3,
-# masks/ on local disk, copied up to S3 every minute by masks-sync.timer.
+# Everything below that touches the bucket does so as the signed-in user:
+# session.env sets AWS_ROLE_ARN, AWS_ROLE_SESSION_NAME and
+# AWS_WEB_IDENTITY_TOKEN_FILE, and this keeps that token fresh.
+install -d -m 0700 "$(dirname "$AWS_WEB_IDENTITY_TOKEN_FILE")"
+/opt/annotate/refresh-token.sh
+systemctl start token-refresh.timer
+
+# The layout open_project.py expects: images/ is the field-of-view folder
+# itself, read-only from S3; masks/ is on local disk, copied up to the
+# folder's masks/ every minute by masks-sync.timer.
 mount-s3 --read-only --allow-other --region "$AWS_REGION" \
-  --prefix "regions/$REGION/images/" "$BUCKET" "$region_dir/images"
+  --prefix "${DATA_PREFIX}${REGION}/" "$BUCKET" "$region_dir/images"
 
 if [ -n "${RESUME_KEY:-}" ]; then
   aws s3 cp --only-show-errors "s3://$BUCKET/$RESUME_KEY" /session/resume/
@@ -26,8 +34,8 @@ systemctl start dcv-token-verifier.service
 dcv create-session --type virtual --owner annotate --user annotate \
   --init /opt/annotate/start-napari.sh annotate
 
-sudo -u annotate touch "$run/last-connected"   # the idle clock starts now
-systemctl start masks-sync.timer annotate-watchdog.timer
+touch "$run/last-connected"   # the idle clock starts now; the watchdog has run since boot
+systemctl start masks-sync.timer
 
 # Last: the website treats a healthy tunnel as "desktop ready".
 systemctl start annotate-tunnel.service
