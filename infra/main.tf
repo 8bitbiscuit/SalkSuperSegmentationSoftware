@@ -126,8 +126,11 @@ resource "aws_launch_template" "desktop" {
   }
 }
 
-# ---- the desktop machine's own permissions: only DCV's licence check ---------
-# Everything it does with the bucket, it does as the signed-in user (below).
+# ---- the desktop machine's own permissions: DCV's licence check, and ---------
+# Session Manager so admins can open a shell on a desktop from the AWS console
+# (Connect -> Session Manager), with no inbound port. The annotator can't use
+# these: session-boot.sh blocks their user from instance metadata. Everything
+# the desktop does with the bucket, it does as the signed-in user (below).
 
 data "aws_iam_policy_document" "ec2_assume" {
   statement {
@@ -155,6 +158,11 @@ data "aws_iam_policy_document" "desktop" {
 resource "aws_iam_role_policy" "desktop" {
   role   = aws_iam_role.desktop.id
   policy = data.aws_iam_policy_document.desktop.json
+}
+
+resource "aws_iam_role_policy_attachment" "desktop_ssm" {
+  role       = aws_iam_role.desktop.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
 resource "aws_iam_instance_profile" "desktop" {

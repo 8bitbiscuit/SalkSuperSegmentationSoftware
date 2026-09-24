@@ -52,7 +52,7 @@ useradd --create-home --uid 2000 --shell /bin/bash annotate
 install -d /opt/annotate /etc/annotate
 python3 -m venv /opt/annotate/venv
 /opt/annotate/venv/bin/pip install --no-cache-dir -r /tmp/desktop/requirements.txt
-/opt/annotate/venv/bin/python -c "import napari, dask, tifffile, magicgui"   # also compiles, for a faster first start
+/opt/annotate/venv/bin/python -c "import napari, dask, tifffile, magicgui, imagecodecs"   # also compiles, for a faster first start
 install -m 0755 -t /opt/annotate /tmp/desktop/*.sh /tmp/desktop/dcv-token-verifier.py
 install -m 0644 -t /opt/annotate /tmp/desktop/open_project.py
 install -m 0644 /tmp/desktop/dcv.conf /etc/dcv/dcv.conf

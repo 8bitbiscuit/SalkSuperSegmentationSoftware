@@ -7,3 +7,4 @@ dask==2026.8.0
 magicgui==0.10.2
 numpy==2.4.6
 tifffile==2026.3.3
+imagecodecs==2026.3.6  # tifffile needs it for compressed TIFFs (the lab's DAPI_decon files are LZW)

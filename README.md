@@ -226,6 +226,14 @@ random `*.trycloudflare.com` address (a Cloudflare "quick tunnel") and
 reports it to the site. Cloudflare offers these for testing: they need no
 account or domain, but come with no uptime guarantee.
 
+**If a desktop doesn't come up**, look inside it: **EC2 → Instances →** the
+`annotate` instance **→ Connect → Session Manager → Connect** (EC2 Instance
+Connect uses SSH, port 22, which the desktops don't have). Then:
+
+```sh
+sudo journalctl -b -u annotate-session -u annotate-tunnel --no-pager | tail -60
+```
+
 **With a domain, later.** Each desktop then gets an address under it, through
 a tunnel the site makes in your Cloudflare account:
 

@@ -132,10 +132,11 @@ def test_nothing_painted_writes_nothing(region):
 
 def test_images_can_come_from_the_environment(tmp_path):
     # How the cloud desktops run it: the field-of-view folder is images/, and
-    # IMAGES picks the channel.
+    # IMAGES picks the channel. LZW-compressed, like the lab's DAPI_decon files.
     (tmp_path / "images").mkdir()
     for z in range(3):
-        tifffile.imwrite(tmp_path / f"images/DAPI_decon_z{z}.tif", np.full((64, 64), 7, np.uint16))
+        tifffile.imwrite(tmp_path / f"images/DAPI_decon_z{z}.tif", np.full((64, 64), 7, np.uint16),
+                         compression="lzw")
     tifffile.imwrite(tmp_path / "images/PVALB_decon_z0.tif", np.zeros((32, 32), np.uint16))  # other channel: ignored
     out = finish(start(tmp_path, "close", images="images/DAPI_decon_z*.tif"))
     assert "annotating (3, 64, 64)" in out
