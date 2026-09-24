@@ -9,9 +9,18 @@ set -euxo pipefail
 export DEBIAN_FRONTEND=noninteractive
 cd /tmp
 
-apt-get update
-apt-get -y upgrade
-apt-get install -y --no-install-recommends \
+# A fresh instance is still setting itself up, and its automatic updates hold
+# the package lock for a while: wait for both instead of failing. Keep the
+# current version of any config file an upgrade would replace.
+cloud-init status --wait || true   # non-zero also means "finished with warnings"
+apt_get() {
+  apt-get -o DPkg::Lock::Timeout=900 \
+    -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold "$@"
+}
+
+apt_get update
+apt_get -y upgrade
+apt_get install -y --no-install-recommends \
   ca-certificates curl unzip jq iptables python3 python3-venv \
   openbox x11-utils fonts-dejavu-core \
   libgl1 libglx-mesa0 libgl1-mesa-dri libegl1 libdbus-1-3 libfontconfig1 \
@@ -21,7 +30,7 @@ apt-get install -y --no-install-recommends \
 # Amazon DCV: server, browser client, and the X server for virtual sessions.
 # Free on EC2; it licenses itself from an S3 bucket the instance role can read.
 curl -fsSL https://d1uj6qtbmh3dt5.cloudfront.net/nice-dcv-ubuntu2404-x86_64.tgz | tar xz
-apt-get install -y ./nice-dcv-*-ubuntu2404-x86_64/nice-dcv-server_*.deb \
+apt_get install -y ./nice-dcv-*-ubuntu2404-x86_64/nice-dcv-server_*.deb \
                    ./nice-dcv-*-ubuntu2404-x86_64/nice-dcv-web-viewer_*.deb \
                    ./nice-dcv-*-ubuntu2404-x86_64/nice-xdcv_*.deb
 
@@ -29,7 +38,7 @@ apt-get install -y ./nice-dcv-*-ubuntu2404-x86_64/nice-dcv-server_*.deb \
 # (resume downloads and masks sync).
 curl -fsSLo mount-s3.deb https://s3.amazonaws.com/mountpoint-s3-release/latest/x86_64/mount-s3.deb
 curl -fsSLo cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
-apt-get install -y ./mount-s3.deb ./cloudflared.deb
+apt_get install -y ./mount-s3.deb ./cloudflared.deb
 echo user_allow_other >> /etc/fuse.conf   # mount-s3 --allow-other
 curl -fsSLo awscliv2.zip https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip
 unzip -q awscliv2.zip
@@ -53,5 +62,5 @@ systemctl enable dcvserver.service annotate-session.service annotate-watchdog.ti
 
 # Leave nothing of the build box behind.
 rm -rf /tmp/desktop /tmp/nice-dcv-* /tmp/aws /tmp/awscliv2.zip /tmp/*.deb
-apt-get clean
+apt_get clean
 cloud-init clean --logs

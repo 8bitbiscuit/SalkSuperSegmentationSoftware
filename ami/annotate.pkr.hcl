@@ -70,8 +70,8 @@ build {
   sources = ["source.amazon-ebs.desktop"]
 
   provisioner "file" {
-    source      = "${path.root}/../desktop/"
-    destination = "/tmp/desktop"
+    source      = "${path.root}/../desktop" # no trailing slash: Packer creates /tmp/desktop
+    destination = "/tmp"
   }
 
   provisioner "shell" {
