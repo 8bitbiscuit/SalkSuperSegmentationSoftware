@@ -101,3 +101,23 @@ export function cloudflareTunnels(env: Env): Tunnels {
     },
   };
 }
+
+/**
+ * Without a domain: each desktop opens a quick tunnel, a random
+ * *.trycloudflare.com address, and reports it (POST /api/desktop/address);
+ * that address becomes the session's hostname and tunnel id. Cloudflare offers
+ * quick tunnels for testing, with no uptime guarantee. Setting DESKTOP_HOSTNAME
+ * and CF_API_TOKEN switches to named tunnels on your own domain.
+ */
+export function quickTunnels(): Tunnels {
+  return {
+    create: async () => ({ id: '', token: '' }),   // the address comes from the desktop once it has one
+    async healthy(host) {
+      // Cloudflare answers 5xx while nothing is connected behind the address; DCV answers anything else.
+      const res = await fetch(`https://${host}/`, { redirect: 'manual', signal: AbortSignal.timeout(10_000) }).catch(() => null);
+      await res?.body?.cancel();
+      return !!res && res.status < 500;
+    },
+    remove: async () => {},   // a quick tunnel ends with its desktop
+  };
+}

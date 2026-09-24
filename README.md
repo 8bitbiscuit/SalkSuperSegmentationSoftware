@@ -74,7 +74,7 @@ napari installed (`pip install -r desktop/requirements.txt pytest`), then
 
 Four steps. After step 1 the site is online and says which settings it still
 needs; after step 3 people can sign in and browse the bucket; step 4 adds the
-desktops, and needs the domain.
+desktops. A domain is optional.
 
 ### 1. Put the site on Cloudflare
 
@@ -206,7 +206,7 @@ Optional settings, with their defaults:
 If something goes wrong, **Workers & Pages → salksupersegmentationsoftware → Logs** (or
 `npx wrangler tail`) shows the site's errors while you click.
 
-### 4. Desktops (needs the domain)
+### 4. Desktops
 
 1. **Build the desktop image.** It's built on a temporary instance in your
    subnet, which Packer reaches through AWS Session Manager, so the subnet
@@ -219,19 +219,30 @@ If something goes wrong, **Workers & Pages → salksupersegmentationsoftware →
    aws ssm put-parameter --name /annotate/ami --type String \
      --data-type aws:ec2:image --overwrite --value ami-...
    ```
-2. **Put the domain on Cloudflare.** Each desktop gets its own address under
-   it. Dashboard → **Add a domain** (or a subdomain your IT delegates).
-3. **Make an API token** so the site can make a tunnel and an address for
+2. Sign in and start a session.
+
+That's all desktops need to work. Without a domain, each desktop gets a
+random `*.trycloudflare.com` address (a Cloudflare "quick tunnel") and
+reports it to the site. Cloudflare offers these for testing: they need no
+account or domain, but come with no uptime guarantee.
+
+**With a domain, later.** Each desktop then gets an address under it, through
+a tunnel the site makes in your Cloudflare account:
+
+1. **Put the domain on Cloudflare.** Dashboard → **Add a domain** (or a
+   subdomain your IT delegates), in the same account as the Worker.
+2. **Make an API token** so the site can make a tunnel and an address for
    each desktop: **My Profile → API Tokens → Create Token → Custom token**,
    with:
    - **Account → Cloudflare Tunnel → Edit**
    - **Zone → DNS → Edit** and **Zone → Zone → Read**, for that domain
-4. **Add two more settings** (step 3's page):
+3. **Add two more settings** (step 3's page):
    - `CF_API_TOKEN` (Secret): the token.
    - `DESKTOP_HOSTNAME` (Text): the desktop addresses, with `{id}` where
      each session's id goes, e.g. `annotate-{id}.example.org`. Keep it one
      level below the domain, so Cloudflare's free certificate covers it.
-5. Sign in and start a session.
+
+New sessions use the domain from then on; no image rebuild is needed.
 
 To move the site itself onto the domain: **Workers & Pages → salksupersegmentationsoftware →
 Settings → Domains & Routes → Add → Custom domain**. Then change `site_url`
@@ -294,7 +305,7 @@ written. On the first real build and session (Phase 0 in PLAN.md), check:
 - **Idle detection:** `dcv list-connections --json annotate` prints a JSON
   array. If it doesn't, the watchdog assumes someone is connected, so idle
   desktops only stop through **End session** or by closing napari.
-- **The desktop through the tunnel:** the DCV web client works through a
+- **The desktop through the tunnel:** the DCV web client works through a quick or named
   Cloudflare Tunnel, including napari's keyboard shortcuts.
 - **Instance size:** napari's speed and memory on a real region decide
   `instance_type`.

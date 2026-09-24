@@ -4,8 +4,9 @@ Wants=network-online.target
 After=network-online.target
 
 [Service]
-# TUNNEL_TOKEN, which cloudflared reads from the environment.
+# SITE_URL and SESSION_ID; TUNNEL_TOKEN (empty without a domain) and DESKTOP_KEY.
+EnvironmentFile=/etc/annotate/session.env
 EnvironmentFile=/etc/annotate/secrets.env
-ExecStart=/usr/bin/cloudflared --no-autoupdate tunnel run
+ExecStart=/opt/annotate/start-tunnel.sh
 Restart=on-failure
 RestartSec=5s

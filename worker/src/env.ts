@@ -11,7 +11,7 @@ export interface Env {
   AWS_ROLE_ARN?: string;           // the role signed-in users act through
   // Desktops, once there is a domain on Cloudflare:
   CF_API_TOKEN?: string;           // secret
-  DESKTOP_HOSTNAME?: string;       // e.g. annotate-{id}.example.org
+  DESKTOP_HOSTNAME?: string;       // e.g. annotate-{id}.example.org; unset: quick tunnels (tunnel.ts)
   // Optional:
   CHANNEL?: string;                // default DAPI_decon: images are <folder>/<CHANNEL>_z<N>.tif
   IDLE_MINUTES?: string;           // default 30
