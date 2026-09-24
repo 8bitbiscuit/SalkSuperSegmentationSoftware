@@ -23,6 +23,7 @@ apt_get -y upgrade
 apt_get install -y --no-install-recommends \
   ca-certificates curl unzip jq iptables python3 python3-venv \
   openbox x11-utils fonts-dejavu-core \
+  xserver-common x11-xkb-utils xkb-data \
   libgl1 libglx-mesa0 libgl1-mesa-dri libegl1 libdbus-1-3 libfontconfig1 \
   libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
   libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xfixes0 libxcb-xinerama0

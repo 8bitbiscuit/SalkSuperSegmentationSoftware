@@ -31,8 +31,28 @@ if [ -n "${RESUME_KEY:-}" ]; then
 fi
 
 systemctl start dcv-token-verifier.service
-dcv create-session --type virtual --owner annotate --user annotate \
-  --init /opt/annotate/start-napari.sh annotate
+
+# DCV gives the session's X server (Xdcv) 15 seconds to start. On a new
+# instance every file's first read comes from the disk's snapshot and is slow,
+# and loading software OpenGL alone took 13 seconds: read those files now.
+{ find /usr/bin/Xdcv /usr/lib/x86_64-linux-gnu/dri /usr/lib/x86_64-linux-gnu/dcv /usr/libexec/dcv -type f
+  find /usr/lib/x86_64-linux-gnu -maxdepth 1 \( -name 'libLLVM*' -o -name 'libgallium*' -o -name 'libGL*' \) -type f
+} 2>/dev/null | xargs -r cat > /dev/null || true
+
+# If DCV still gives up, it closes the session within about 20 seconds; the
+# next try finds the files already read. start-napari.sh marks a desktop that
+# came up.
+for attempt in 1 2 3; do
+  dcv create-session --type virtual --owner annotate --user annotate \
+    --init /opt/annotate/start-napari.sh annotate
+  for _ in $(seq 60); do
+    [ -e "$run/desktop-started" ] && break 2
+    dcv describe-session annotate >/dev/null 2>&1 || { echo "DCV closed the session (try $attempt)"; continue 2; }
+    sleep 1
+  done
+  break   # still starting after a minute: leave it be
+done
+dcv describe-session annotate >/dev/null 2>&1 || { echo "the DCV session would not start" >&2; exit 1; }
 
 touch "$run/last-connected"   # the idle clock starts now; the watchdog has run since boot
 systemctl start masks-sync.timer

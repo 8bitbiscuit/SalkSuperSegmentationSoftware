@@ -7,6 +7,7 @@ export USER=$ANNOTATOR   # open_project.py names the masks after $USER
 export IMAGES="images/${CHANNEL}_z*.tif"
 run=/run/annotate
 log=$run/napari.log
+touch "$run/desktop-started"   # the X server is up: session-boot.sh waits for this
 
 openbox &
 
