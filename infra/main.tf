@@ -1,8 +1,9 @@
-# AWS for the annotation desktops: a small network with no inbound access, the
-# desktop launch template, the website's sign-in app in the existing Cognito
-# user pool, a role signed-in users act through, and narrow identities for the
-# desktops and the AMI build. The bucket and the user pool already exist and
-# are only referred to: nothing here changes their settings. See README.md.
+# AWS for the annotation desktops: a security group with no inbound access in
+# an existing subnet, the desktop launch template, the website's sign-in app
+# in the existing Cognito user pool, a role signed-in users act through, and
+# narrow identities for the desktops and the AMI build. The bucket, the user
+# pool and the network already exist and are only referred to: nothing here
+# changes their settings. See README.md.
 
 terraform {
   required_version = ">= 1.6"
@@ -42,47 +43,23 @@ data "aws_cognito_user_pool" "pool" {
   user_pool_id = var.cognito_user_pool_id
 }
 
-# ---- network: outbound only; browsers arrive through Cloudflare Tunnels ----
+# ---- network: an existing subnet; browsers arrive through Cloudflare Tunnels ----
 
-data "aws_availability_zones" "available" {
-  state = "available"
+data "aws_subnet" "desktops" {
+  id = var.subnet_id
 }
 
-resource "aws_vpc" "main" {
-  cidr_block           = "10.42.0.0/16"
-  enable_dns_hostnames = true
-  tags                 = { Name = "annotate" }
-}
-
-resource "aws_internet_gateway" "main" {
-  vpc_id = aws_vpc.main.id
-}
-
-resource "aws_subnet" "public" {
-  vpc_id                  = aws_vpc.main.id
-  cidr_block              = "10.42.0.0/20"
-  availability_zone       = data.aws_availability_zones.available.names[0]
-  map_public_ip_on_launch = true
-  tags                    = { Name = "annotate-public" } # ami/ finds it by this name
-}
-
-resource "aws_route_table" "public" {
-  vpc_id = aws_vpc.main.id
-  route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.main.id
-  }
-}
-
-resource "aws_route_table_association" "public" {
-  subnet_id      = aws_subnet.public.id
-  route_table_id = aws_route_table.public.id
+# The AMI build (ami/) looks the subnet up here.
+resource "aws_ssm_parameter" "subnet" {
+  name  = "/annotate/subnet"
+  type  = "String"
+  value = var.subnet_id
 }
 
 resource "aws_security_group" "desktop" {
   name        = "annotate-desktop"
   description = "No inbound: browsers reach the desktop through its Cloudflare Tunnel"
-  vpc_id      = aws_vpc.main.id
+  vpc_id      = data.aws_subnet.desktops.vpc_id
 
   egress {
     from_port   = 0
@@ -122,10 +99,9 @@ resource "aws_launch_template" "desktop" {
   }
 
   network_interfaces {
-    subnet_id                   = aws_subnet.public.id
-    security_groups             = [aws_security_group.desktop.id]
-    associate_public_ip_address = true
-    delete_on_termination       = true
+    subnet_id             = var.subnet_id
+    security_groups       = [aws_security_group.desktop.id]
+    delete_on_termination = true # a public IP or not: the subnet's own setting decides
   }
 
   metadata_options {
@@ -331,6 +307,25 @@ resource "aws_iam_role_policy" "user" {
   policy = data.aws_iam_policy_document.user.json
 }
 
+# ---- the AMI build box: Packer reaches it through Session Manager ------------
+# The box calls out to AWS, so it needs no public IP and no open port: it
+# works in a private subnet.
+
+resource "aws_iam_role" "ami_builder" {
+  name               = "annotate-ami-builder"
+  assume_role_policy = data.aws_iam_policy_document.ec2_assume.json
+}
+
+resource "aws_iam_role_policy_attachment" "ami_builder" {
+  role       = aws_iam_role.ami_builder.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
+resource "aws_iam_instance_profile" "ami_builder" {
+  name = "annotate-ami-builder" # ami/annotate.pkr.hcl uses it by this name
+  role = aws_iam_role.ami_builder.name
+}
+
 # ---- GitHub Actions: build the AMI (no stored AWS keys) ----------------------
 
 resource "aws_iam_openid_connect_provider" "github" {
@@ -389,6 +384,27 @@ data "aws_iam_policy_document" "ami_build" {
   statement {
     actions   = ["ssm:PutParameter"]
     resources = [aws_ssm_parameter.ami.arn]
+  }
+  statement {
+    actions   = ["ssm:GetParameter"]
+    resources = [aws_ssm_parameter.subnet.arn]
+  }
+  statement {
+    sid       = "StartTheBuildBoxWithItsProfile"
+    actions   = ["iam:PassRole"]
+    resources = [aws_iam_role.ami_builder.arn]
+  }
+  statement {
+    sid     = "ReachTheBuildBox"
+    actions = ["ssm:StartSession"]
+    resources = [
+      "arn:aws:ec2:${local.region}:${local.account}:instance/*",
+      "arn:aws:ssm:${local.region}::document/AWS-StartPortForwardingSession",
+    ]
+  }
+  statement {
+    actions   = ["ssm:TerminateSession", "ssm:ResumeSession"]
+    resources = ["*"]
   }
 }
 

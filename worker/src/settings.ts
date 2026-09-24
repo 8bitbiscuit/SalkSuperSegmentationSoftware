@@ -26,18 +26,22 @@ export function missingSettings(env: Env): string[] {
   return missing;
 }
 
-/** The env with defaults and derived values filled in. */
-export function withSettings(env: Env): Env {
+/** Dashboard text as pasted: no surrounding spaces, line breaks or quote marks (terraform output prints them). */
+const clean = (v: unknown) => typeof v === 'string' ? v.trim().replace(/^"(.*)"$/s, '$1').trim() : v;
+
+/** The env with pasted values cleaned up, and defaults and derived values filled in. */
+export function withSettings(raw: Env): Env {
+  const env = Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, clean(v)])) as unknown as Env;
   const mock = env.BACKEND === 'mock';
   const data = parseDataUrl(env.DATA_URL ?? (mock ? 's3://mock-bucket/spida_dev/cellpose_3d_test/patches/' : ''));
   return {
     ...env,
     BUCKET: data?.bucket,
     DATA_PREFIX: data?.prefix ?? '',
-    CHANNEL: env.CHANNEL?.trim() || 'DAPI_decon',
-    IDLE_MINUTES: env.IDLE_MINUTES?.trim() || '30',
-    AWS_REGION: env.AWS_REGION?.trim() || env.COGNITO_USER_POOL_ID?.split('_')[0] || 'us-west-2',
-    DESKTOP_HOSTNAME: env.DESKTOP_HOSTNAME?.trim() || (mock ? '{id}.localhost' : undefined),
+    CHANNEL: env.CHANNEL || 'DAPI_decon',
+    IDLE_MINUTES: env.IDLE_MINUTES || '30',
+    AWS_REGION: env.AWS_REGION || env.COGNITO_USER_POOL_ID?.split('_')[0] || 'us-west-2',
+    DESKTOP_HOSTNAME: env.DESKTOP_HOSTNAME || (mock ? '{id}.localhost' : undefined),
   };
 }
 
@@ -50,7 +54,7 @@ export function setupPage(missing: string[]): Response {
 <h1>Almost there</h1>
 <p>The site is running, but it doesn't know where your data is or how people sign in yet. It still needs:</p>
 <ul>${items}</ul>
-<p>Add them in the Cloudflare dashboard: <strong>Workers &amp; Pages → annotate → Settings → Variables and Secrets</strong>
+<p>Add them in the Cloudflare dashboard: <strong>Workers &amp; Pages → this Worker → Settings → Variables and Secrets</strong>
 (<code>COGNITO_CLIENT_SECRET</code> as a secret). <code>terraform output</code> in the project's <code>infra/</code>
 folder prints every value. Then reload this page.</p>`, { status: 503, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } });
 }

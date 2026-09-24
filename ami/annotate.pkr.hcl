@@ -1,5 +1,6 @@
 # The desktop image every session boots from. Build it with
 #   packer init ami && packer build ami
+# (needs the Session Manager plugin: brew install --cask session-manager-plugin)
 # (or the "Build desktop AMI" workflow), then point new sessions at it:
 #   aws ssm put-parameter --name /annotate/ami --data-type aws:ec2:image \
 #     --type String --overwrite --value <ami id from ami/manifest.json>
@@ -17,6 +18,12 @@ variable "region" {
   default = "us-west-2"
 }
 
+# The desktops' subnet, recorded by infra/.
+data "amazon-parameterstore" "subnet" {
+  name   = "/annotate/subnet"
+  region = var.region
+}
+
 source "amazon-ebs" "desktop" {
   region        = var.region
   instance_type = "m6i.large"
@@ -32,12 +39,13 @@ source "amazon-ebs" "desktop" {
     most_recent = true
   }
 
-  # The public subnet infra/ creates; the build box needs the internet.
-  subnet_filter {
-    filters = { "tag:Name" = "annotate-public" }
-  }
-  associate_public_ip_address = true
-  ssh_username                = "ubuntu"
+  # Packer reaches the build box through Session Manager: the box calls out,
+  # so it needs no public IP or open port, only the subnet's route out.
+  subnet_id            = data.amazon-parameterstore.subnet.value
+  iam_instance_profile = "annotate-ami-builder" # from infra/
+  ssh_interface        = "session_manager"
+  ssh_username         = "ubuntu"
+  ssh_timeout          = "15m" # the box has to boot and register with Session Manager first
 
   launch_block_device_mappings {
     device_name           = "/dev/sda1"

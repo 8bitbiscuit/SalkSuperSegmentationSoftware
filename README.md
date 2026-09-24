@@ -83,11 +83,12 @@ desktops, and needs the domain.
 3. In the Cloudflare dashboard: **Workers & Pages → Create → Import a
    repository**. Connect GitHub and pick the repository.
 4. On the settings screen:
-   - **Project name:** `annotate`. It must match `name` in `wrangler.jsonc`.
+   - **Project name:** the `name` in `wrangler.jsonc`
+     (`salksupersegmentationsoftware`). The two must match.
    - **Build command:** `npm run build`. This builds the Jekyll site.
    - **Deploy command:** leave it as `npx wrangler deploy`.
 5. **Deploy.** Cloudflare builds the site, creates its database, and gives it
-   an address like `https://annotate.<your-subdomain>.workers.dev`.
+   an address like `https://salksupersegmentationsoftware.<your-subdomain>.workers.dev`.
 
 Open the address. It shows an **Almost there** page listing the settings it
 still needs. That's expected: step 3 adds them. From now on, every push to
@@ -119,18 +120,22 @@ cd infra
 cp terraform.tfvars.example terraform.tfvars
 ```
 
-Fill in three values in `terraform.tfvars`:
+Fill in four values in `terraform.tfvars`:
 
 - `data_url`: the bucket folder that holds the brain-region folders.
 - `cognito_user_pool_id`: from the Cognito console, e.g. `us-west-2_AbC123xyz`.
   Everything is created in the pool's region.
 - `site_url`: the address from step 1.
+- `subnet_id`: an existing subnet for the desktops. It must give instances a
+  route to the internet, so the easiest choice is one your lab's EC2
+  instances already use: **EC2 → Instances →** pick one **→ Networking →
+  Subnet ID**. It must be in the same region as the user pool.
 
 ```sh
 terraform init
 terraform apply                                  # lists what it will create; type "yes"
 terraform output cloudflare_settings             # four settings for step 3
-terraform output -raw cognito_client_secret      # the fifth, a secret
+terraform output -raw cognito_client_secret | pbcopy   # the fifth, a secret, copied to the clipboard
 ```
 
 What it creates:
@@ -141,7 +146,8 @@ What it creates:
 - **The `annotate-user` role**, which signed-in people act through. It can
   start desktops from the launch template, end them, list the data folder,
   read images and write `masks/` folders. Nothing else.
-- **The desktop launch template**, and a small network with no inbound access.
+- **The desktop launch template**, and a security group with no inbound
+  access in your subnet.
 - **A role for GitHub** to build the desktop image (step 4).
 
 Keep `infra/terraform.tfstate`. It's Terraform's record of what it created,
@@ -152,6 +158,9 @@ If `terraform apply` stops with:
 - **`AccessDenied` on an `iam:` or `cognito-idp:` action:** your AWS role
   can't create roles or user-pool apps. An account administrator needs to run
   it, or give you a role that can.
+- **`EntityAlreadyExists` for `token.actions.githubusercontent.com`:** the
+  account already has GitHub's sign-in link. Add
+  `create_github_oidc_provider = false` to `terraform.tfvars` and apply again.
 - **`FeatureUnavailableInTierException`:** the user pool is on Cognito's Lite
   plan, which only has the classic sign-in page. Add
   `cognito_managed_login = false` to `terraform.tfvars` and apply again.
@@ -172,7 +181,7 @@ Things to check on the bucket (it's shared, so Terraform never changes it):
 
 ### 3. Give the site its settings
 
-In the Cloudflare dashboard: **Workers & Pages → annotate → Settings →
+In the Cloudflare dashboard: **Workers & Pages → salksupersegmentationsoftware → Settings →
 Variables and Secrets → Add**.
 
 | Name | Type | Value |
@@ -181,7 +190,7 @@ Variables and Secrets → Add**.
 | `COGNITO_USER_POOL_ID` | Text | 〃 |
 | `COGNITO_CLIENT_ID` | Text | 〃 |
 | `AWS_ROLE_ARN` | Text | 〃 |
-| `COGNITO_CLIENT_SECRET` | Secret | from `terraform output -raw cognito_client_secret` |
+| `COGNITO_CLIENT_SECRET` | Secret | paste from the clipboard (the `pbcopy` command above) |
 
 **Deploy** to save them. Then open the site. It sends you to the Cognito
 sign-in page, and after you sign in it lists the brain regions. That means the
@@ -194,14 +203,17 @@ Optional settings, with their defaults:
   view when it holds `<CHANNEL>_z<number>.tif` files.
 - `IDLE_MINUTES` (`30`): a desktop with nobody connected this long powers off.
 
-If something goes wrong, **Workers & Pages → annotate → Logs** (or
+If something goes wrong, **Workers & Pages → salksupersegmentationsoftware → Logs** (or
 `npx wrangler tail`) shows the site's errors while you click.
 
 ### 4. Desktops (needs the domain)
 
-1. **Build the desktop image.** From the project folder (or with the **Build
-   desktop AMI** workflow on GitHub):
+1. **Build the desktop image.** It's built on a temporary instance in your
+   subnet, which Packer reaches through AWS Session Manager, so the subnet
+   can be private. From the project folder (or with the **Build desktop AMI**
+   workflow on GitHub):
    ```sh
+   brew install --cask session-manager-plugin    # once
    packer init ami
    packer build ami    # 20–30 minutes; prints an image id (ami-...) at the end
    aws ssm put-parameter --name /annotate/ami --type String \
@@ -221,7 +233,7 @@ If something goes wrong, **Workers & Pages → annotate → Logs** (or
      level below the domain, so Cloudflare's free certificate covers it.
 5. Sign in and start a session.
 
-To move the site itself onto the domain: **Workers & Pages → annotate →
+To move the site itself onto the domain: **Workers & Pages → salksupersegmentationsoftware →
 Settings → Domains & Routes → Add → Custom domain**. Then change `site_url`
 in `infra/terraform.tfvars` and run `terraform apply` again, so Cognito sends
 people back to the new address.

@@ -25,6 +25,15 @@ variable "site_url" {
   }
 }
 
+variable "subnet_id" {
+  description = "An existing subnet the desktops start in, in the user pool's region. It must reach the internet: the subnet your lab's EC2 instances already use is a safe choice."
+  type        = string
+  validation {
+    condition     = can(regex("^subnet-[0-9a-f]+$", var.subnet_id))
+    error_message = "subnet_id looks like subnet-0123456789abcdef0"
+  }
+}
+
 variable "cognito_managed_login" {
   description = "false if the pool is on Cognito's Lite plan (apply then fails with FeatureUnavailableInTierException), which only has the classic hosted sign-in page."
   type        = bool

@@ -94,6 +94,10 @@ async function tokenRequest(env: Env, params: Record<string, string>): Promise<{
     body: new URLSearchParams({ client_id: env.COGNITO_CLIENT_ID!, ...params }).toString(),
   });
   const data = await res.json().catch(() => ({})) as { id_token?: string; refresh_token?: string; error?: string };
+  if (data.error === 'invalid_client') {
+    throw new Error('Cognito did not accept the app\'s credentials (invalid_client). Paste COGNITO_CLIENT_SECRET into the '
+      + 'Cloudflare settings again, copied with: terraform output -raw cognito_client_secret | pbcopy');
+  }
   if (!res.ok || !data.id_token) throw new Error(`Cognito refused the sign-in (${data.error ?? res.status})`);
   return data as { id_token: string; refresh_token?: string };
 }

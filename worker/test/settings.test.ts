@@ -42,6 +42,14 @@ test('the rest is worked out: bucket, prefix, region from the pool, channel and 
   assert.equal(withSettings({ ...ready, CHANNEL: 'PVALB_decon' }).CHANNEL, 'PVALB_decon');
 });
 
+test('pasted values lose surrounding spaces, line breaks and quote marks', () => {
+  const env = withSettings({ ...ready, COGNITO_CLIENT_SECRET: ' "s3cret"\n', COGNITO_CLIENT_ID: 'client ', DATA_URL: '"s3://b-1/x"' });
+  assert.equal(env.COGNITO_CLIENT_SECRET, 's3cret');
+  assert.equal(env.COGNITO_CLIENT_ID, 'client');
+  assert.equal(env.BUCKET, 'b-1');
+  assert.deepEqual(missingSettings(env), []);
+});
+
 test('a fresh deploy with no settings serves a page listing what to add', async () => {
   const env = { DB: fakeD1() } as Env;
   const ctx = {} as ExecutionContext;

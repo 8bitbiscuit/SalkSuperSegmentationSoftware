@@ -110,6 +110,19 @@ test('an access token is not accepted as an ID token', async () => {
   assert.equal((await signIn(env)).res.status, 502);
 });
 
+test('a wrong client secret says which setting to paste again', async () => {
+  const env = newEnv();
+  fakeCognito(await idToken());
+  const cognito = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) =>
+    new Request(input, init).url === `${COGNITO}/oauth2/token`
+      ? Response.json({ error: 'invalid_client' }, { status: 400 })
+      : cognito(input, init)) as typeof fetch;
+  const { res } = await signIn(env);
+  assert.equal(res.status, 502);
+  assert.match(await res.text(), /COGNITO_CLIENT_SECRET/);
+});
+
 test('a user pool without a sign-in domain gets a page saying what to add', async () => {
   const env = { ...newEnv(), COGNITO_USER_POOL_ID: 'us-west-2_NoDomain' };
   globalThis.fetch = (async () => Response.json({ issuer: 'x', jwks_uri: 'y' })) as typeof fetch;

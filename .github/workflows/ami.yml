@@ -19,6 +19,11 @@ jobs:
           role-to-assume: ${{ vars.AWS_AMI_BUILD_ROLE_ARN }}
           aws-region: us-west-2
       - uses: hashicorp/setup-packer@main
+      - name: Session Manager plugin, which Packer uses to reach the build box
+        run: |
+          curl -sSfo /tmp/session-manager-plugin.deb \
+            https://s3.amazonaws.com/session-manager-downloads/plugin/latest/ubuntu_64bit/session-manager-plugin.deb
+          sudo dpkg -i /tmp/session-manager-plugin.deb
       - run: packer init ami && packer build ami
       - name: Point new sessions at the new image
         run: |
