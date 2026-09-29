@@ -5,30 +5,32 @@ permalink: /guide/
 ---
 # How to annotate
 
-Each session is a desktop in the cloud with napari already open on one field
-of view. It is yours alone, it saves your masks as you go, and it shuts itself
-down when you're done. It reads the images and saves the masks under your own
-sign-in.
+** USE THE SPREADSHEET FOR STATUS OF WHICH STAINS NEED SEGMENTATION:
+[spreadsheet link]({{ https://docs.google.com/spreadsheets/d/1p1N_n56zOxvhvM8zzC7xwjlks4zPnVI99ENNYrLK0Zg/edit?gid=0#gid=0 }})
 
 ## Start
+
+The whole idea is that you’re going to be spinning up a desktop with a custom ami.
+The ami or amazon machine image has everything you need already installed,
+each new session starts a desktop in the cloud with napari already open
+on one field of view. It is yours alone, it will save your masks as you go, 
+and it shuts itself down when you're done. It reads the images and saves 
+the masks under your own sign-in so that you can continue where you left off!
 
 1. On the [session page]({{ '/' | relative_url }}), pick a **brain region**,
    then a **region**, then a **field of view**. The page remembers your last
    choice.
 2. Pick the **masks to start from**: empty, or any saved masks file for that
-   field of view, yours or anyone else's. Your newest is picked for you.
-3. Click **Start session**. The desktop takes 2–4 minutes to come up. The page
-   updates by itself.
-4. Click **Open desktop**. It opens in a new tab with napari showing two
-   layers: the image, named after its channel (for example **DAPI_decon**),
+   field of view, yours or anyone else's. Your newest is picked for you by default.
+3. Click **Start session**. The desktop will take around 2–4 minutes to come up. The page
+   updates by itself so you don't need to constantly refresh.
+4. Click **Open desktop** once it pops up. It opens in a new tab with napari showing two
+   layers: the image, named after its channel (for example **DAPI_raw**),
    and **masks** (what you paint).
 
-Resuming never changes the file you pick. Its labels are copied into a new
-masks file with your name on it.
+## Actually doing segmentations
 
-## Paint
-
-Select the **masks** layer, then:
+Select the **masks** layer using the bar on the bottom left, then:
 
 | Key | Does |
 |---|---|
@@ -39,15 +41,12 @@ Select the **masks** layer, then:
 | <kbd>5</kbd> or <kbd>L</kbd> | Pick a label from the image |
 | <kbd>6</kbd> or <kbd>Z</kbd> | Pan and zoom |
 | <kbd>M</kbd> | New label (one above the highest used) |
-| <kbd>-</kbd> / <kbd>=</kbd> | Previous / next label |
-| <kbd>[</kbd> / <kbd>]</kbd> | Smaller / bigger brush |
-| <kbd>B</kbd> | Don't paint over existing labels (toggle) |
-| <kbd>V</kbd> | Show only the selected label (toggle) |
 | <kbd>Ctrl</kbd>+<kbd>Z</kbd> | Undo |
 
 Move through z-slices with the slider under the image. Each slice loads when
-you reach it, so the first view of a slice can take a moment. These are
-napari's defaults; napari lists them all under **Preferences → Shortcuts**.
+you reach it, so the first view of a slice can take a moment.
+
+**MAKE SURE YOU SELECT A NEW LABEL FOR EACH CELL**
 
 ## Saving
 
@@ -67,24 +66,3 @@ undone.
 Either close napari in the desktop, or click **End session** on the session
 page. Both save first. A large field of view can take a few minutes to save, and
 the session page shows **Saving your masks and shutting down…** until it's done.
-
-If you walk away, the desktop disconnects you after 60 minutes without input.
-30 minutes after that, it saves and shuts down on its own. To carry on
-later, start a new session and resume from your newest masks.
-
-## Browser tips
-
-- Use **Chrome** or **Edge**.
-- Use the desktop's **fullscreen** button (in its toolbar), so shortcuts
-  like <kbd>Ctrl</kbd>+<kbd>W</kbd> go to napari instead of closing the tab.
-- Keep the desktop open in only one tab.
-
-## When something goes wrong
-
-- **napari can't open the field of view:** a message box in the desktop shows the
-  error. The session ends when you click OK.
-- **The session page says the session failed:** the reason is shown there.
-  Start again, and if it keeps failing, send the message to whoever runs
-  this site.
-- **The desktop tab went blank or disconnected:** your session is still
-  running. Go back to the session page and click **Open desktop** again.
