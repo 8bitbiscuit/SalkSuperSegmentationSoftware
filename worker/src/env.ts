@@ -4,7 +4,7 @@ export interface Env {
 
   // ---- set in the Cloudflare dashboard: Settings -> Variables and Secrets ----
   // `terraform output` in infra/ prints the first five.
-  DATA_URL?: string;               // s3://bucket/folder/ holding the brain regions
+  DATA_URL?: string;               // s3://bucket/ holding spida_dev/ and spatial_data/ (sources.ts)
   COGNITO_USER_POOL_ID?: string;   // e.g. us-west-2_AbC123xyz
   COGNITO_CLIENT_ID?: string;
   COGNITO_CLIENT_SECRET?: string;  // secret
@@ -13,7 +13,7 @@ export interface Env {
   CF_API_TOKEN?: string;           // secret
   DESKTOP_HOSTNAME?: string;       // e.g. annotate-{id}.example.org; unset: quick tunnels (tunnel.ts)
   // Optional:
-  CHANNEL?: string;                // default DAPI_decon: images are <folder>/<CHANNEL>_z<N>.tif
+  CHANNEL?: string;                // default DAPI_decon: spida_dev opens <field of view>/<CHANNEL>_z<N>.tif
   IDLE_MINUTES?: string;           // default 30
   AWS_REGION?: string;             // default: the user pool's region
 
@@ -79,8 +79,8 @@ export interface Cloud {
   requestStop(instanceId: string): Promise<void>;
   terminate(instanceIds: string[]): Promise<void>;
   listMasks(region: string): Promise<MaskFile[]>;
-  /** Subfolders of <DATA_PREFIX><path>/ (not masks/), and how many channel images sit in it. */
-  listFolders(path: string): Promise<{ folders: string[]; images: number }>;
+  /** Subfolders of <DATA_PREFIX><path>/ (not masks/), and the files directly in it. */
+  listFolder(path: string): Promise<{ folders: string[]; files: { name: string; size: number }[] }>;
 }
 
 export interface Tunnels {

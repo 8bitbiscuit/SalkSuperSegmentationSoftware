@@ -5,9 +5,10 @@ import { finish, liveSession, reap, refresh, update, type Row } from './lifecycl
 import { mockBackend, mockDesktopPage } from './mock.ts';
 import { desktopSecret, ensureSchema } from './schema.ts';
 import {
-  hmacToken, hostnameFor, masksPrefix, newSessionId, parseMasksName, REGION_ID, tunnelName, userData, usernameOf,
+  hmacToken, hostnameFor, masksPrefix, newSessionId, parseMasksName, tunnelName, userData, usernameOf,
 } from './session.ts';
 import { missingSettings, setupPage, withSettings } from './settings.ts';
+import { browse, chosenStacks, openable } from './sources.ts';
 import { cloudflareTunnels, quickTunnels } from './tunnel.ts';
 
 // The DCV session every desktop runs; the web client's URL fragment names it.
@@ -104,7 +105,7 @@ export default {
 
       switch (`${req.method} ${url.pathname}`) {
         case 'GET /api/state': return json(await getState(env, b, user.email));
-        case 'GET /api/folders': return json(await listFolders(env, b, url.searchParams.get('path') ?? ''));
+        case 'GET /api/folders': return json(await browse(env, b.cloud, url.searchParams.get('path') ?? ''));
         case 'GET /api/masks': return json(await listMasks(env, b, user.email, url.searchParams.get('region')));
         case 'POST /api/session': return json(await startSession(req, env, b, user), 202);
         case 'DELETE /api/session': return json(await endSession(env, b, user.email), 202);
@@ -149,13 +150,8 @@ async function getState(env: Env, b: Backend, email: string) {
   };
 }
 
-async function listFolders(env: Env, b: Backend, path: string) {
-  if (path && !REGION_ID.test(path)) throw new HttpError(400, 'Unknown folder.');
-  return { channel: env.CHANNEL, ...(await b.cloud.listFolders(path)) };
-}
-
 async function listMasks(env: Env, b: Backend, email: string, region: unknown) {
-  const id = await requireFolder(env, b, region);
+  const id = (await openable(env, b.cloud, region)).region;
   const prefix = masksPrefix(env.DATA_PREFIX, id);
   const masks = (await b.cloud.listMasks(id))
     .flatMap((f) => {
@@ -172,8 +168,10 @@ async function startSession(req: Request, env: Env, b: Backend, user: User) {
   if (env.BACKEND !== 'mock' && env.DESKTOP_HOSTNAME && !env.CF_API_TOKEN) {
     throw new HttpError(503, "Desktops can't start: DESKTOP_HOSTNAME is set, so the site also needs CF_API_TOKEN (README, desktops step).");
   }
-  const body = await req.json().catch(() => null) as { region?: unknown; resume_key?: unknown } | null;
-  const region = await requireFolder(env, b, body?.region);
+  const body = await req.json().catch(() => null) as { region?: unknown; stacks?: unknown; resume_key?: unknown } | null;
+  const opened = await openable(env, b.cloud, body?.region);
+  const stacks = chosenStacks(opened, body?.stacks);
+  const region = opened.region;
   const email = user.email;
 
   let resume: string | null = null;
@@ -222,7 +220,9 @@ async function startSession(req: Request, env: Env, b: Backend, user: User) {
           RESUME_KEY: resume ?? '',
           BUCKET: env.BUCKET ?? '',
           DATA_PREFIX: env.DATA_PREFIX!,
-          CHANNEL: env.CHANNEL!,
+          IMAGES_DIR: opened.images,
+          CHANNELS: stacks.join(':'),   // start-napari.sh opens one layer per stack
+          CHANNEL: stacks[0],           // what desktops built before CHANNELS open
           SITE_URL: new URL(req.url).origin,
           AWS_REGION: env.AWS_REGION ?? '',
           // The desktop reaches the bucket as this user too (AssumeRoleWithWebIdentity).
@@ -315,13 +315,4 @@ async function view(env: Env, b: Backend, row: Row) {
     ready_at: row.ready_at,
     url: row.state === 'ready' ? b.desktopUrl(row.hostname, row.id, await hmacToken(await desktopSecret(env.DB), row.id)) : null,
   };
-}
-
-/** A folder under DATA_PREFIX that holds the channel's z-slices, checked in the bucket as the user. */
-async function requireFolder(env: Env, b: Backend, id: unknown): Promise<string> {
-  if (typeof id !== 'string' || !REGION_ID.test(id)) throw new HttpError(400, 'Unknown folder.');
-  if (!(await b.cloud.listFolders(id)).images) {
-    throw new HttpError(400, `There are no ${env.CHANNEL}_z*.tif images in ${id}.`);
-  }
-  return id;
 }

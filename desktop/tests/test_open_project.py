@@ -40,6 +40,7 @@ DRIVER = textwrap.dedent("""
         def act():
             if how != "untouched":
                 viewer.layers["masks"].data[1, 10:20, 10:20] = 7
+            print("layers", [layer.name for layer in viewer.layers], flush=True)
             print("ready", flush=True)
             if how in ("close", "untouched"):
                 viewer.close()
@@ -140,4 +141,37 @@ def test_images_can_come_from_the_environment(tmp_path):
     tifffile.imwrite(tmp_path / "images/PVALB_decon_z0.tif", np.zeros((32, 32), np.uint16))  # other channel: ignored
     out = finish(start(tmp_path, "close", images="images/DAPI_decon_z*.tif"))
     assert "annotating (3, 64, 64)" in out
+    assert "layers ['DAPI_decon', 'masks']" in out
     assert_painted(saved_masks(tmp_path))
+
+
+def test_each_stack_picked_opens_as_a_layer(tmp_path):
+    # How spatial_data regions look: raw and deconvolved planes side by side,
+    # their names differing only after the z-number.
+    (tmp_path / "images").mkdir()
+    for z in range(3):
+        tifffile.imwrite(tmp_path / f"images/mosaic_DAPI_z{z}.tif", np.full((64, 64), 7, np.uint16))
+        tifffile.imwrite(tmp_path / f"images/mosaic_DAPI_z{z}.decon.tif", np.full((64, 64), 0.5, np.float32))
+    out = finish(start(tmp_path, "close", images="images/mosaic_DAPI_z*.tif:images/mosaic_DAPI_z*.decon.tif"))
+    assert "layers ['mosaic_DAPI', 'mosaic_DAPI.decon', 'masks']" in out
+    assert "annotating (3, 64, 64) uint16" in out  # not six planes: the decon files are their own stack
+    assert "annotating (3, 64, 64) float32" in out
+    assert_painted(saved_masks(tmp_path))
+
+
+def test_stacks_of_different_shapes_do_not_open(tmp_path):
+    (tmp_path / "images").mkdir()
+    for z in range(3):
+        tifffile.imwrite(tmp_path / f"images/mosaic_DAPI_z{z}.tif", np.zeros((64, 64), np.uint16))
+        tifffile.imwrite(tmp_path / f"images/mosaic_GFAP_z{z}.tif", np.zeros((32, 32), np.uint16))
+    proc = start(tmp_path, "close", images="images/mosaic_DAPI_z*.tif:images/mosaic_GFAP_z*.tif")
+    out, _ = proc.communicate(timeout=120)
+    assert proc.returncode != 0
+    assert "mosaic_GFAP is (3, 32, 32), but mosaic_DAPI is (3, 64, 64)" in out
+
+
+def test_a_stack_with_no_files_stops_before_the_viewer_opens(region):
+    proc = start(region, "close", images="images/mosaic_PVARB_z*.tif:images/mosaic_GFAP_z*.tif")
+    out, _ = proc.communicate(timeout=120)
+    assert proc.returncode != 0
+    assert "no images matched" in out and "mosaic_GFAP_z*.tif" in out

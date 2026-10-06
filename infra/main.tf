@@ -26,8 +26,7 @@ data "aws_caller_identity" "me" {}
 
 locals {
   region = split("_", var.cognito_user_pool_id)[0] # everything lives where the user pool does
-  data   = regex("^s3://([^/]+)/*(.*)$", var.data_url)
-  prefix = local.data[1] == "" ? "" : "${trimsuffix(local.data[1], "/")}/" # <prefix><brain region>/<region>/<fov>/
+  bucket = regex("^s3://([^/]+)", var.data_url)[0]
   site   = trimsuffix(var.site_url, "/")
 
   account    = data.aws_caller_identity.me.account_id
@@ -36,7 +35,7 @@ locals {
 
 # The existing bucket and user pool. Looking them up fails the plan early on a wrong name.
 data "aws_s3_bucket" "data" {
-  bucket = local.data[0]
+  bucket = local.bucket
 }
 
 data "aws_cognito_user_pool" "pool" {
@@ -288,6 +287,7 @@ data "aws_iam_policy_document" "user" {
     actions   = ["ec2:DescribeInstances"]
     resources = ["*"]
   }
+  # Only the data folders: the bucket holds other things too (home folders, pcluster/).
   statement {
     sid       = "ListTheData"
     actions   = ["s3:ListBucket"]
@@ -295,18 +295,18 @@ data "aws_iam_policy_document" "user" {
     condition {
       test     = "StringLike"
       variable = "s3:prefix"
-      values   = ["${local.prefix}*"]
+      values   = [for f in var.data_folders : "${f}/*"]
     }
   }
   statement {
     sid       = "ReadImagesAndMasks"
     actions   = ["s3:GetObject"]
-    resources = ["${local.bucket_arn}/${local.prefix}*"]
+    resources = [for f in var.data_folders : "${local.bucket_arn}/${f}/*"]
   }
   statement {
     sid       = "WriteMasks"
     actions   = ["s3:PutObject", "s3:AbortMultipartUpload"]
-    resources = ["${local.bucket_arn}/${local.prefix}*/masks/*"]
+    resources = [for f in var.data_folders : "${local.bucket_arn}/${f}/*/masks/*"]
   }
 }
 

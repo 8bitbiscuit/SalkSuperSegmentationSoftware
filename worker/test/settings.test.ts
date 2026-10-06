@@ -24,7 +24,7 @@ test('missing and malformed settings are named; a filled-in site has none', () =
     'DATA_URL', 'COGNITO_USER_POOL_ID', 'COGNITO_CLIENT_ID', 'COGNITO_CLIENT_SECRET', 'AWS_ROLE_ARN',
   ]);
   assert.deepEqual(missingSettings({ ...ready, DATA_URL: 'bucket/folder', COGNITO_USER_POOL_ID: 'Pool' }), [
-    'DATA_URL (must look like s3://bucket/folder/)', 'COGNITO_USER_POOL_ID (must look like us-west-2_AbC123xyz)',
+    'DATA_URL (must look like s3://bucket/)', 'COGNITO_USER_POOL_ID (must look like us-west-2_AbC123xyz)',
   ]);
   assert.deepEqual(missingSettings(ready), []);
   assert.deepEqual(missingSettings({ BACKEND: 'mock' } as Env), []);

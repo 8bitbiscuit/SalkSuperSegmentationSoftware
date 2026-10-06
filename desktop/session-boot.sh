@@ -19,11 +19,12 @@ install -d -m 0700 "$(dirname "$AWS_WEB_IDENTITY_TOKEN_FILE")"
 /opt/annotate/refresh-token.sh
 systemctl start token-refresh.timer
 
-# The layout open_project.py expects: images/ is the field-of-view folder
-# itself, read-only from S3; masks/ is on local disk, copied up to the
-# folder's masks/ every minute by masks-sync.timer.
+# The layout open_project.py expects: images/ is the folder in S3 holding the
+# region's z-planes, read-only: the field of view itself for spida_dev, the
+# region's images/ (IMAGES_DIR) for spatial_data. masks/ is on local disk,
+# copied up to the region's masks/ every minute by masks-sync.timer.
 mount-s3 --read-only --allow-other --region "$AWS_REGION" \
-  --prefix "${DATA_PREFIX}${REGION}/" "$BUCKET" "$region_dir/images"
+  --prefix "${DATA_PREFIX}${REGION}/${IMAGES_DIR:+$IMAGES_DIR/}" "$BUCKET" "$region_dir/images"
 
 if [ -n "${RESUME_KEY:-}" ]; then
   aws s3 cp --only-show-errors "s3://$BUCKET/$RESUME_KEY" /session/resume/

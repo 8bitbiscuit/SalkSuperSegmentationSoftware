@@ -16,7 +16,7 @@ function setup(instances: Instance[] = [], { healthy = false } = {}) {
       requestStop: async () => {},
       terminate: async (ids) => { calls.terminated.push(...ids); },
       listMasks: async () => [],
-      listFolders: async () => ({ folders: [], images: 0 }),
+      listFolder: async () => ({ folders: [], files: [] }),
     },
     tunnels: {
       create: async () => ({ id: 'tun', token: 'tok' }),

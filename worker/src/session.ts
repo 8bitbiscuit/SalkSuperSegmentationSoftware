@@ -33,8 +33,9 @@ export async function hmacToken(secret: string, message: string): Promise<string
   return btoa(String.fromCharCode(...mac)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-// A region is a folder under DATA_PREFIX, possibly nested ("THM1" or
-// "THM1/patch_03"). No segment may start with "." so ".." can't climb out.
+// A folder under DATA_PREFIX, on the way to a region or a region itself
+// ("spatial_data/<experiment>/out/region_UCI-5224"; sources.ts). No segment
+// may start with "." so ".." can't climb out.
 export const REGION_ID = /^(?=.{1,256}$)[A-Za-z0-9][A-Za-z0-9._-]*(\/[A-Za-z0-9][A-Za-z0-9._-]*)*$/;
 
 export const masksPrefix = (dataPrefix: string | undefined, region: string) => `${dataPrefix ?? ''}${region}/masks/`;

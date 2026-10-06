@@ -1,9 +1,19 @@
 variable "data_url" {
-  description = "The folder in the existing bucket that holds the brain-region folders, e.g. s3://my-bucket/spida_dev/cellpose_3d_test/patches/"
+  description = "The existing bucket, e.g. s3://my-bucket/"
   type        = string
   validation {
-    condition     = can(regex("^s3://[a-z0-9][a-z0-9.-]+[a-z0-9](/[A-Za-z0-9._/-]*)?$", var.data_url))
-    error_message = "data_url looks like s3://bucket/folder/"
+    condition     = can(regex("^s3://[a-z0-9][a-z0-9.-]+[a-z0-9]/?$", var.data_url))
+    error_message = "data_url is now the bucket itself, like s3://salk-workstation-data-dev-020125249408/ (it used to end in spida_dev/cellpose_3d_test/patches/)"
+  }
+}
+
+variable "data_folders" {
+  description = "The folders in the bucket that annotators read images from and save masks to: the roots of the site's data choices (SOURCES in worker/src/sources.ts)."
+  type        = list(string)
+  default     = ["spida_dev/cellpose_3d_test/patches", "spatial_data"]
+  validation {
+    condition     = length(var.data_folders) > 0 && alltrue([for f in var.data_folders : can(regex("^[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*)*$", f))])
+    error_message = "data_folders are folder paths in the bucket, like spatial_data, with no slash at either end"
   }
 }
 

@@ -2,7 +2,9 @@ title: Segmentation desktops
 description: Annotate MERSCOPE regions in napari from your browser.
 
 # Where masks end up, shown on the guide page.
-masks_location: s3://salk-workstation-data-dev-020125249408/spida_dev/cellpose_3d_test/patches/<brain region>/<region>/<field of view>/masks/
+masks_location:
+  spida_dev: s3://salk-workstation-data-dev-020125249408/spida_dev/cellpose_3d_test/patches/<brain region>/<region>/<field of view>/masks/
+  spatial_data: s3://salk-workstation-data-dev-020125249408/spatial_data/<experiment>/out/<region>/masks/
 
 markdown: kramdown
 permalink: pretty

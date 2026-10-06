@@ -7,12 +7,12 @@
 
   let pollTimer = null;
   let view = null;        // what is on screen, so a poll doesn't wipe the form
-  let chosen = null;      // the folder a new session would open
+  let chosen = null;      // the region a new session would open, as /api/folders gave it
   let listingRound = 0;   // only the newest folder listing may draw
+  let starting = false;   // a Start request is on its way
 
-  // Names for the folder levels under the data prefix; deeper ones are "Folder".
-  const LEVELS = ['Brain region', 'Region', 'Field of view'];
   const pretty = (path) => path.split('/').join(' / ');
+  const planes = (n) => `${n} z-plane${n === 1 ? '' : 's'}`;
 
   class NoApi extends Error {}
 
@@ -31,6 +31,7 @@
 
   const remember = (key, value) => { try { localStorage.setItem(key, value); } catch {} };
   const recall = (key) => { try { return localStorage.getItem(key); } catch { return null; } };
+  const recallList = (key) => { try { const v = JSON.parse(recall(key)); return Array.isArray(v) ? v : []; } catch { return []; } };
 
   async function api(path, options = {}) {
     let res;
@@ -112,10 +113,16 @@
   async function renderForm(last) {
     view = 'form';
     chosen = null;
+    starting = false;
     root.innerHTML = `
       ${lastNotice(last)}
       <h2>Start a session</h2>
       <div id="folders"></div>
+      <fieldset id="stacks-box" hidden>
+        <legend>Images to open</legend>
+        <div id="stacks"></div>
+        <p class="hint">Each opens as a layer of its own. Every z-plane is read whole when you reach it, so more and bigger images load more slowly.</p>
+      </fieldset>
       <div id="resume-box" hidden>
         <label for="resume">Masks to start from</label>
         <select id="resume"><option value="">Loading…</option></select>
@@ -123,49 +130,73 @@
       </div>
       <p class="notice bad" id="form-error" hidden></p>
       <div class="actions"><button id="start" disabled>Start session</button></div>`;
-    root.querySelector('#start').onclick = () => startSession(chosen, root.querySelector('#resume').value);
-    openLevel(0, '', (recall('folder') || '').split('/'));
+    root.querySelector('#start').onclick = () =>
+      startSession(chosen.region, chosen.pick ? picked() : [], root.querySelector('#resume').value);
+    openLevel(0, '', recallList('picks'));
   }
 
-  /** Show the folders inside `path` as level `depth`; a folder with images is the one to open. */
+  /**
+   * Show the choices at `path` as level `depth`: first the data folder, then
+   * on down. The Worker says what each level is and where its choices lead,
+   * until a level is a region that opens.
+   */
   async function openLevel(depth, path, wanted) {
     const box = root.querySelector('#folders');
     [...box.children].slice(depth).forEach((el) => el.remove());
     chosen = null;
-    root.querySelector('#start').disabled = true;
+    root.querySelector('#stacks').innerHTML = '';
+    root.querySelector('#stacks-box').hidden = true;
     root.querySelector('#resume-box').hidden = true;
+    updateStart();
 
     const round = ++listingRound;
-    let listing;
+    let step;
     try {
-      listing = await api(`/api/folders?path=${encodeURIComponent(path)}`);
+      step = await api(`/api/folders?path=${encodeURIComponent(path)}`);
     } catch (err) {
-      return showFormError(`Couldn't list folders: ${err.message}`);
+      if (round === listingRound) showFormError(err.message);
+      return;
     }
     if (round !== listingRound) return;   // a newer choice replaced this one
     showFormError('');
-    if (listing.images > 0) {
-      chosen = path;
-      remember('folder', path);
-      root.querySelector('#start').disabled = false;
-      return loadMasks(path);
-    }
-    if (!listing.folders.length) {
-      return showFormError(path ? `${pretty(path)} has no ${listing.channel} images and no folders.` : 'No folders found in the bucket.');
+    if (step.region) {
+      chosen = step;
+      remember('picks', JSON.stringify([...box.querySelectorAll('select')].map((s) => s.selectedOptions[0].text)));
+      if (step.pick) showStacks(step.stacks);
+      updateStart();
+      return loadMasks(step.region);
     }
 
     const level = document.createElement('div');
     const id = `level-${depth}`;
     level.innerHTML = `
-      <label for="${id}">${LEVELS[depth] || 'Folder'}</label>
+      <label for="${id}">${esc(step.label)}</label>
       <select id="${id}"><option value="">Choose…</option>
-        ${listing.folders.map((f) => `<option${f === wanted[depth] ? ' selected' : ''}>${esc(f)}</option>`).join('')}
+        ${step.folders.map((f, i) => `<option value="${i}"${f.name === wanted[depth] ? ' selected' : ''}>${esc(f.name)}</option>`).join('')}
       </select>`;
     box.append(level);
     const select = level.querySelector('select');
-    const next = (keep) => select.value && openLevel(depth + 1, path ? `${path}/${select.value}` : select.value, keep);
+    const next = (keep) => { const f = step.folders[select.value]; if (f) openLevel(depth + 1, f.path, keep); };
     select.onchange = () => next([]);
     next(wanted);   // carry on down to the folder used last time
+  }
+
+  /** A region's image stacks to tick, the ones picked last time already ticked (else the first). */
+  function showStacks(stacks) {
+    const last = recallList('stacks');
+    const on = stacks.some((s) => last.includes(s.name)) ? last : [stacks[0].name];
+    root.querySelector('#stacks').innerHTML = stacks.map((s) => `
+      <label class="check"><input type="checkbox" value="${esc(s.name)}"${on.includes(s.name) ? ' checked' : ''}>
+        <span>${esc(s.name)} <span class="muted">· ${planes(s.planes)} · ${size(s.bytes)}</span></span></label>`).join('');
+    const box = root.querySelector('#stacks-box');
+    box.hidden = false;
+    box.onchange = () => { remember('stacks', JSON.stringify(picked())); updateStart(); };
+  }
+
+  const picked = () => [...root.querySelectorAll('#stacks input:checked')].map((i) => i.value);
+
+  function updateStart() {
+    root.querySelector('#start').disabled = starting || !chosen || (chosen.pick && !picked().length);
   }
 
   function showFormError(message) {
@@ -198,21 +229,23 @@
     }
   }
 
-  async function startSession(regionId, resumeKey) {
+  async function startSession(regionId, stacks, resumeKey) {
     const button = root.querySelector('#start');
+    starting = true;
     button.disabled = true;
     button.textContent = 'Starting…';
     try {
       await api('/api/session', {
         method: 'POST',
-        body: JSON.stringify({ region: regionId, resume_key: resumeKey || null }),
+        body: JSON.stringify({ region: regionId, stacks, resume_key: resumeKey || null }),
       });
       view = null;
-      refresh();
+      refresh();   // the session view replaces the button
     } catch (err) {
-      button.disabled = false;
       button.textContent = 'Start session';
       showFormError(err.message);
+      starting = false;
+      updateStart();
     }
   }
 

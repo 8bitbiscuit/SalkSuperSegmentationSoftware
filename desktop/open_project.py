@@ -7,6 +7,7 @@ instead of an apptainer --bind:
 
     python3 open_project.py /data/region_UCI-5224
     python3 open_project.py /data/region_UCI-5224 --resume old_masks.tif.gz
+    IMAGES=images/mosaic_DAPI_z*.tif:images/mosaic_GFAP_z*.tif python3 open_project.py /data/region_UCI-5224
 
 It also saves once more on the way out, when the window is closed or the
 process gets SIGTERM, since on the cloud desktops something other than the
@@ -36,8 +37,12 @@ from qtpy.QtWidgets import QApplication
 
 # CONFIG
 # ----------------------------------------------------------------------------
-# relative to the region directory; the cloud desktops set it per channel
+# relative to the region directory; one glob per image layer, separated by
+# ":", each with one * for the z-plane number. The cloud desktops set it from
+# the images picked on the website.
 IMAGES = os.environ.get("IMAGES", "images/mosaic_PVARB_z*.tif")
+# the first layer is grey; any more are added on top of it in colour
+COLORMAPS = ["gray", "green", "magenta", "cyan", "yellow", "red", "blue"]
 
 AUTOSAVE_MINUTES = 5
 LABEL_DTYPE = np.uint16  # up to 65,535 labels a region; np.uint32 beyond
@@ -48,33 +53,45 @@ USER = os.environ.get("USER", "unknown")
 os.umask(0o002)  # or the next person cannot overwrite our masks
 # ----------------------------------------------------------------------------
 
-PROJECT = PVALB_GLOB = OUT_DIR = MASKS_PATH = None
+PROJECT = IMAGE_GLOBS = OUT_DIR = MASKS_PATH = None
 
 
 def configure(project):
     """Point the script at a region. Called once from main."""
-    global PROJECT, PVALB_GLOB, OUT_DIR, MASKS_PATH
+    global PROJECT, IMAGE_GLOBS, OUT_DIR, MASKS_PATH
     PROJECT = Path(project)
-    PVALB_GLOB = str(PROJECT / IMAGES)
+    IMAGE_GLOBS = [str(PROJECT / pattern) for pattern in IMAGES.split(":")]
     OUT_DIR = PROJECT / "masks"
     MASKS_PATH = OUT_DIR / f"{USER}_{datetime.now():%Y%m%dT%H%M%S}_masks.tif.gz"
 
 
-def z_index(path):
-    match = re.search(r"z(\d+)", Path(path).stem)
-    return int(match.group(1)) if match else 0
+def z_planes(pattern):
+    """The files a glob names, in z order, its * matching digits only:
+    mosaic_DAPI_z*.tif is mosaic_DAPI_z3.tif but not mosaic_DAPI_z3.decon.tif."""
+    head, _, tail = pattern.partition("*")
+    planes = []
+    for path in glob(pattern):
+        z = path[len(head):len(path) - len(tail)]
+        if re.fullmatch(r"[0-9]+", z):
+            planes.append((int(z), path))
+    return [path for _, path in sorted(planes)]
 
 
-def load_PVALB(pattern):
+def layer_name(pattern):
+    """images/mosaic_DAPI_z*.decon.tif -> mosaic_DAPI.decon, the website's name for it."""
+    return Path(pattern).name.replace("_z*", "").removesuffix(".tif")
+
+
+def load_stack(pattern):
     """Lazy (z, y, x) stack: one napari layer, one plane read at a time.
 
     One chunk per plane. Chunking finer with tifffile's aszarr buys nothing --
     napari computes the whole displayed plane anyway -- and that path retains
     every plane it decodes.
     """
-    files = sorted(glob(pattern), key=z_index)
+    files = z_planes(pattern)
     if not files:
-        raise FileNotFoundError(f"no PVALB files matched {pattern}")
+        raise FileNotFoundError(f"no images matched {pattern}")
 
     with tifffile.TiffFile(files[0]) as tif:
         series = tif.series[0]
@@ -140,23 +157,29 @@ def _copy_labels(path, masks):
 
 
 def add_layers(viewer, resume=None):
-    image = load_PVALB(PVALB_GLOB)
+    images = [load_stack(pattern) for pattern in IMAGE_GLOBS]
+    shape = images[0].shape
+    for pattern, image in zip(IMAGE_GLOBS, images):
+        if image.shape != shape:  # one masks layer has to fit them all
+            raise ValueError(f"{layer_name(pattern)} is {image.shape}, but "
+                             f"{layer_name(IMAGE_GLOBS[0])} is {shape}")
     # before any image plane is on screen, so the two memory peaks don't stack
-    masks = load_masks(resume, image.shape)
+    masks = load_masks(resume, shape)
 
-    # cache=False holds the one-slice-at-a-time line: napari otherwise keeps
-    # dask slices in a global cache sized at a quarter of total memory.
-    channel = Path(PVALB_GLOB).name.split("_z")[0]  # mosaic_PVARB, DAPI_decon, ...
-    viewer.add_image(image, name=channel, colormap="gray", multiscale=False,
-                     cache=False,
-                     contrast_limits=contrast_from(image[len(image) // 2]))
+    for i, (pattern, image) in enumerate(zip(IMAGE_GLOBS, images)):
+        # cache=False holds the one-slice-at-a-time line: napari otherwise keeps
+        # dask slices in a global cache sized at a quarter of total memory.
+        viewer.add_image(image, name=layer_name(pattern),  # mosaic_DAPI, DAPI_decon, ...
+                         colormap=COLORMAPS[i % len(COLORMAPS)],
+                         blending="additive" if i else "translucent",
+                         multiscale=False, cache=False,
+                         contrast_limits=contrast_from(image[len(image) // 2]))
+        print(f"annotating {image.shape} {image.dtype}, chunks {image.chunksize} "
+              f"from {Path(pattern).name}")
 
     # numpy, not zarr: napari's paint path and M shortcut need a real ndarray,
     # and zeros cost nothing until painted on.
     viewer.add_labels(masks, name="masks")
-
-    print(f"annotating {image.shape} {image.dtype}, chunks {image.chunksize} "
-          f"from {Path(PVALB_GLOB).name}")
 
 
 _save_lock = threading.Lock()
@@ -278,8 +301,9 @@ def check_paths():
     """
     if not PROJECT.is_dir():
         sys.exit(f"no such region directory: {PROJECT}")
-    if not glob(PVALB_GLOB):
-        sys.exit(f"no images matched {PVALB_GLOB}")
+    for pattern in IMAGE_GLOBS:
+        if not z_planes(pattern):
+            sys.exit(f"no images matched {pattern}")
 
 
 def main(argv=None):

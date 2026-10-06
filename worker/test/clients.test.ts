@@ -152,28 +152,30 @@ test('role session names keep only what AWS allows', () => {
   assert.equal(sessionName(`${'x'.repeat(80)}@salk.edu`).length, 64);
 });
 
-test('listFolders() lists subfolders (not masks/) and counts the channel\'s z-slices', async () => {
+test('listFolder() lists subfolders (not masks/) and the files directly in the folder', async () => {
   const seen = stubFetch(xml(`<ListBucketResult><IsTruncated>false</IsTruncated>
-    <Contents><Key>spida_dev/patches/CBDN/region_UWA-7648/fov_07/DAPI_decon_z0.tif</Key><Size>1</Size></Contents>
-    <Contents><Key>spida_dev/patches/CBDN/region_UWA-7648/fov_07/DAPI_decon_z1.tif</Key><Size>1</Size></Contents>
-    <Contents><Key>spida_dev/patches/CBDN/region_UWA-7648/fov_07/PVALB_decon_z0.tif</Key><Size>1</Size></Contents>
-    <Contents><Key>spida_dev/patches/CBDN/region_UWA-7648/fov_07/DAPI_decon_z1.tif.bak</Key><Size>1</Size></Contents>
+    <Contents><Key>spida_dev/patches/CBDN/region_UWA-7648/fov_07/</Key><Size>0</Size></Contents>
+    <Contents><Key>spida_dev/patches/CBDN/region_UWA-7648/fov_07/DAPI_decon_z0.tif</Key><Size>12</Size></Contents>
+    <Contents><Key>spida_dev/patches/CBDN/region_UWA-7648/fov_07/PVALB_decon_z0.tif</Key><Size>34</Size></Contents>
     <CommonPrefixes><Prefix>spida_dev/patches/CBDN/region_UWA-7648/fov_07/masks/</Prefix></CommonPrefixes>
     <CommonPrefixes><Prefix>spida_dev/patches/CBDN/region_UWA-7648/fov_07/extra/</Prefix></CommonPrefixes>
   </ListBucketResult>`));
-  const got = await awsCloud(env, creds).listFolders('CBDN/region_UWA-7648/fov_07');
-  assert.deepEqual(got, { folders: ['extra'], images: 2 });
+  const got = await awsCloud(env, creds).listFolder('CBDN/region_UWA-7648/fov_07');
+  assert.deepEqual(got, {
+    folders: ['extra'],
+    files: [{ name: 'DAPI_decon_z0.tif', size: 12 }, { name: 'PVALB_decon_z0.tif', size: 34 }],   // not the folder's own marker
+  });
   const url = new URL(seen[0].url);
   assert.equal(url.searchParams.get('prefix'), 'spida_dev/patches/CBDN/region_UWA-7648/fov_07/');
   assert.equal(url.searchParams.get('delimiter'), '/');
 });
 
-test('listFolders(\'\') lists the brain regions at the top of the data prefix', async () => {
+test('listFolder(\'\') lists the top of the data prefix', async () => {
   const seen = stubFetch(xml(`<ListBucketResult><IsTruncated>false</IsTruncated>
     <CommonPrefixes><Prefix>spida_dev/patches/CBDN/</Prefix></CommonPrefixes>
     <CommonPrefixes><Prefix>spida_dev/patches/THM1/</Prefix></CommonPrefixes>
   </ListBucketResult>`));
-  assert.deepEqual(await awsCloud(env, creds).listFolders(''), { folders: ['CBDN', 'THM1'], images: 0 });
+  assert.deepEqual(await awsCloud(env, creds).listFolder(''), { folders: ['CBDN', 'THM1'], files: [] });
   assert.equal(new URL(seen[0].url).searchParams.get('prefix'), 'spida_dev/patches/');
 });
 

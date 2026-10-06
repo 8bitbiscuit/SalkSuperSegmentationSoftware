@@ -79,6 +79,10 @@ select {
   color: var(--text);
 }
 .hint { color: var(--muted); font-size: 14px; margin: 6px 0 0; }
+fieldset { border: 0; padding: 0; margin: 16px 0 0; min-width: 0; }
+legend { font-weight: 600; padding: 0; margin: 0 0 6px; }
+label.check { display: flex; gap: 8px; align-items: baseline; font-weight: 400; margin: 4px 0; overflow-wrap: anywhere; }
+label.check input { accent-color: var(--accent); }
 
 .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
 button, .button {

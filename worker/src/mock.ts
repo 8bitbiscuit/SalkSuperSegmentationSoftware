@@ -18,10 +18,20 @@ interface MockInstance extends Instance {
   masks: string;   // the region's masks folder
 }
 
-// Fields of view in the pretend bucket, shaped like the real one.
-const FOVS = [
-  'CBDN/region_UWA-7648/fov_07', 'CBDN/region_UWA-7648/fov_08', 'CBDN/region_UWA-7650/fov_01',
-  'THM1/region_UWA-7701/fov_02', 'VePo/region_UWA-7733/fov_11',
+// The pretend bucket, laid out like the real one (sources.ts).
+const FILES = [
+  ...['CBDN/region_UWA-7648/fov_07', 'CBDN/region_UWA-7648/fov_08', 'CBDN/region_UWA-7650/fov_01',
+    'THM1/region_UWA-7701/fov_02', 'VePo/region_UWA-7733/fov_11',
+  ].flatMap((fov) => Array.from({ length: 7 }, (_, z) =>
+    ({ key: `spida_dev/cellpose_3d_test/patches/${fov}/DAPI_decon_z${z}.tif`, size: 40e6 }))),
+  ...['202507181027_BICAN-4x1-A10-Q-02_VMSC31910/out/region_UCI-2424',
+    '202507181027_BICAN-4x1-A10-Q-02_VMSC31910/out/region_UCI-5224',
+    '202508011054_BICAN-4x1-A38-E-05_VMSC31910/out/region_UWA-7648',
+  ].flatMap((region) => Object.entries({
+    'manifest.json': 1e3, 'micron_to_mosaic_pixel_transform.csv': 227,
+    'mosaic_DAPI_z3.tif': 11.2e9, 'mosaic_DAPI_z3.decon.tif': 22.4e9, 'mosaic_GFAP_z3.tif': 11.2e9,
+    'mosaic_PolyT_z3.tif': 11.2e9, 'mosaic_PolyT_z3.decon.tif': 22.4e9,
+  }).map(([name, size]) => ({ key: `spatial_data/${region}/images/${name}`, size }))),
 ];
 
 const instances = new Map<string, MockInstance>();
@@ -88,11 +98,16 @@ export const mockBackend = (env: Env): Backend => ({
       tick();
       return [...masksFor(masksPrefix(env.DATA_PREFIX, region))];
     },
-    async listFolders(path) {
-      const below = path ? `${path}/` : '';
-      const folders = new Set(FOVS.filter((f) => f.startsWith(below)).map((f) => f.slice(below.length).split('/')[0]));
-      folders.delete('');
-      return { folders: [...folders].sort(), images: FOVS.includes(path) ? 7 : 0 };
+    async listFolder(path) {
+      const prefix = `${env.DATA_PREFIX ?? ''}${path ? `${path}/` : ''}`;
+      const folders = new Set<string>();
+      const files = [];
+      for (const f of FILES.filter((f) => f.key.startsWith(prefix))) {
+        const [name, ...rest] = f.key.slice(prefix.length).split('/');
+        if (rest.length) folders.add(name);
+        else files.push({ name, size: f.size });
+      }
+      return { folders: [...folders].sort(), files };
     },
   },
 

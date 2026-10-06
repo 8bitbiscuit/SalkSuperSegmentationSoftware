@@ -54,8 +54,6 @@ export function awsCloud(env: Env, creds: Creds): Cloud {
   need(env, 'AWS_REGION', 'BUCKET');
   const region = env.AWS_REGION!;
   const aws = new AwsClient({ ...creds, region });
-  const channel = env.CHANNEL!.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const imageName = new RegExp(`^${channel}_z\\d+\\.tif$`);   // e.g. DAPI_decon_z0.tif
 
   /** Every object (and, with a delimiter, every subfolder) under a prefix, across pages. */
   async function list(prefix: string, delimiter?: string) {
@@ -102,7 +100,7 @@ export function awsCloud(env: Env, creds: Creds): Cloud {
         Session: spec.session,
         Owner: spec.email,
         Region: spec.region,
-        Name: `annotate ${spec.username} ${spec.region}`,
+        Name: `annotate ${spec.username} ${spec.region}`.slice(0, 256),   // EC2's limit for a tag value
       };
       const doc = await ec2('RunInstances', {
         'LaunchTemplate.LaunchTemplateName': LAUNCH_TEMPLATE,
@@ -158,12 +156,12 @@ export function awsCloud(env: Env, creds: Creds): Cloud {
       return (await list(masksPrefix(env.DATA_PREFIX, regionId))).files;
     },
 
-    async listFolders(path) {
+    async listFolder(path) {
       const prefix = `${env.DATA_PREFIX ?? ''}${path ? `${path}/` : ''}`;
       const { files, folders } = await list(prefix, '/');
       return {
         folders: folders.map((f) => f.slice(prefix.length, -1)).filter((f) => f && f !== 'masks'),
-        images: files.filter((f) => imageName.test(f.key.slice(prefix.length))).length,
+        files: files.map((f) => ({ name: f.key.slice(prefix.length), size: f.size })).filter((f) => f.name),
       };
     },
   };

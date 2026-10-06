@@ -1,7 +1,8 @@
 # Segmentation desktops
 
-Annotators sign in to a website, pick a region, and get their own cloud
-desktop with napari open on it. They paint masks in the browser; masks save
+Annotators sign in to a website, pick a field of view or a whole region (and,
+for whole regions, which images), and get their own cloud desktop with napari
+open on it. They paint masks in the browser; masks save
 to S3 every few minutes and when the session ends. The desktop shuts itself
 down when they're done or walk away.
 
@@ -14,8 +15,9 @@ down when they're done or walk away.
   script, which now also saves on exit), plus the boot, sync and shutdown
   scripts.
 - **`ami/`** (Packer) and **`infra/`** (Terraform, us-west-2) build the AWS side.
-  Region images and masks live in the existing bucket
-  `salk-workstation-data-dev-020125249408`, under `spida_dev/cellpose_3d_test/patches/`.
+  Images and masks live in the existing bucket
+  `salk-workstation-data-dev-020125249408`, under `spida_dev/` and
+  `spatial_data/` ([The data](#the-data)).
 - People sign in with the existing Cognito user pool. After that, everything
   that touches AWS happens **as them**: the website starts and stops their
   desktop, and the desktop reads images and saves masks, with AWS
@@ -62,8 +64,9 @@ code, using a pretend cloud (`worker/src/mock.ts`) and no sign-in:
   `.dev.vars` and restart.
 - To run the 10-minute cron by hand:
   `curl "http://localhost:8787/__scheduled?cron=*/10+*+*+*+*"`
-- The pretend bucket has a few fields of view (`CBDN/region_UWA-7648/fov_07`
-  and others) in `worker/src/mock.ts`.
+- The pretend bucket (`worker/src/mock.ts`) has a few spida_dev fields of
+  view (`CBDN/region_UWA-7648/fov_07` and others) and three spatial_data
+  regions, each with DAPI, GFAP and PolyT images.
 
 The desktop tests run the real napari script and the watchdog. They need
 napari installed (`pip install -r desktop/requirements.txt pytest`), then
@@ -122,7 +125,10 @@ cp terraform.tfvars.example terraform.tfvars
 
 Fill in four values in `terraform.tfvars`:
 
-- `data_url`: the bucket folder that holds the brain-region folders.
+- `data_url`: the bucket, `s3://salk-workstation-data-dev-020125249408/`.
+  The site offers the two data folders in it, `spida_dev` and `spatial_data`.
+  The role can reach only `data_folders`, which default to the site's two
+  roots (`SOURCES` in `worker/src/sources.ts`; keep them in step).
 - `cognito_user_pool_id`: from the Cognito console, e.g. `us-west-2_AbC123xyz`.
   Everything is created in the pool's region.
 - `site_url`: the address from step 1.
@@ -144,8 +150,9 @@ What it creates:
   allowed to send people back to `site_url` after sign-in. If the pool has no
   sign-in domain yet, Terraform adds one: `annotate-<account number>`.
 - **The `annotate-user` role**, which signed-in people act through. It can
-  start desktops from the launch template, end them, list the data folder,
-  read images and write `masks/` folders. Nothing else.
+  start desktops from the launch template, end them, list the data folders,
+  read images and write `masks/` folders. Nothing else: not the rest of the
+  bucket.
 - **The desktop launch template**, and a security group with no inbound
   access in your subnet.
 - **A role for GitHub** to build the desktop image (step 4).
@@ -193,14 +200,16 @@ Variables and Secrets → Add**.
 | `COGNITO_CLIENT_SECRET` | Secret | paste from the clipboard (the `pbcopy` command above) |
 
 **Deploy** to save them. Then open the site. It sends you to the Cognito
-sign-in page, and after you sign in it lists the brain regions. That means the
-whole chain works: Cognito, then AWS in your name, then the bucket.
+sign-in page, and after you sign in it offers `spida_dev` and `spatial_data`;
+pick one and it lists the folders in it. That means the whole chain works:
+Cognito, then AWS in your name, then the bucket.
 **Start session** replies that desktops aren't set up yet until step 4.
 
 Optional settings, with their defaults:
 
-- `CHANNEL` (`DAPI_decon`): which images open. A folder counts as a field of
-  view when it holds `<CHANNEL>_z<number>.tif` files.
+- `CHANNEL` (`DAPI_decon`): which spida_dev images open. A spida_dev folder
+  counts as a field of view when it holds `<CHANNEL>_z<number>.tif` files.
+  (In spatial_data, the annotator picks the images.)
 - `IDLE_MINUTES` (`30`): a desktop with nobody connected this long powers off.
 
 If something goes wrong, **Workers & Pages → salksupersegmentationsoftware → Logs** (or
@@ -257,6 +266,21 @@ Settings → Domains & Routes → Add → Custom domain**. Then change `site_url
 in `infra/terraform.tfvars` and run `terraform apply` again, so Cognito sends
 people back to the new address.
 
+### Upgrading a site set up before spatial_data
+
+`DATA_URL` used to be spida_dev's folder; it is now the bucket. spida_dev
+keeps working throughout.
+
+1. `infra/terraform.tfvars`: `data_url = "s3://salk-workstation-data-dev-020125249408/"`,
+   then `terraform apply`. This gives the role spatial_data.
+2. Rebuild the desktop image (step 4). Desktops from older images can't open
+   spatial_data regions. The new image also runs sessions from the old site.
+3. Merge to main, which deploys the new site.
+4. Right after, in the Cloudflare settings: `DATA_URL` =
+   `s3://salk-workstation-data-dev-020125249408/`. Until then the session
+   page asks for it; running desktops carry on. (Not before step 3: the old
+   site would list the bucket's top folders.)
+
 ### How sign-in and AWS access fit together
 
 1. Someone opens the site. The site sends them to the user pool's sign-in
@@ -275,15 +299,31 @@ people back to the new address.
 
 ### The data
 
-The picker reads the folders live from `DATA_URL`, one level at a time, until
-a folder with images opens:
+The picker's first choice is the data folder. It then reads the folders live
+from the bucket, one level at a time, until a region opens. The two folders
+are laid out differently (`worker/src/sources.ts`):
 
 ```
-<brain region>/<region>/<field of view>/DAPI_decon_z0.tif, DAPI_decon_z1.tif, ...
-<brain region>/<region>/<field of view>/masks/     (created by the first save)
+spida_dev/cellpose_3d_test/patches/
+  <brain region>/<region>/<field of view>/DAPI_decon_z0.tif, DAPI_decon_z1.tif, ...
+  <brain region>/<region>/<field of view>/masks/        (created by the first save)
+
+spatial_data/
+  <experiment>/out/<region>/images/mosaic_DAPI_z3.tif, mosaic_DAPI_z3.decon.tif, mosaic_GFAP_z3.tif, ...
+  <experiment>/out/<region>/masks/                      (created by the first save)
 ```
 
-Saved masks go to the field of view's `masks/` folder, named
+- **spida_dev** goes down the folders until one holds `CHANNEL`'s z-planes,
+  and opens those.
+- **spatial_data** asks for the experiment, then the region in its `out/`,
+  then which of the region's images to open. Each kind of image is a
+  *stack*, its z-planes named `<name>_z<number>.tif`: `mosaic_DAPI_z3.tif`
+  belongs to `mosaic_DAPI`, `mosaic_DAPI_z3.decon.tif` to `mosaic_DAPI.decon`.
+  Each stack picked opens as a napari layer of its own: the first in grey,
+  the others in colour on top. They must all be the same size, since one
+  masks layer covers them.
+
+Saved masks go to the region's (or field of view's) `masks/` folder, named
 `<user>_<YYYYmmddTHHMMSS>_masks.tif.gz`. Only files named that way appear in
 the resume list. Every user needs an email address in the pool; their masks
 are named after the part before the @.

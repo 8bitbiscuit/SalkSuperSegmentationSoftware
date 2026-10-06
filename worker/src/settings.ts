@@ -19,7 +19,7 @@ export function parseDataUrl(url: string): { bucket: string; prefix: string } | 
 export function missingSettings(env: Env): string[] {
   if (env.BACKEND === 'mock') return [];
   const missing: string[] = REQUIRED.filter((k) => !env[k]?.trim());
-  if (env.DATA_URL && !parseDataUrl(env.DATA_URL)) missing.push('DATA_URL (must look like s3://bucket/folder/)');
+  if (env.DATA_URL && !parseDataUrl(env.DATA_URL)) missing.push('DATA_URL (must look like s3://bucket/)');
   if (env.COGNITO_USER_POOL_ID && !/^[a-z]{2}(-[a-z]+)+-\d_\w+$/.test(env.COGNITO_USER_POOL_ID.trim())) {
     missing.push('COGNITO_USER_POOL_ID (must look like us-west-2_AbC123xyz)');
   }
@@ -33,7 +33,7 @@ const clean = (v: unknown) => typeof v === 'string' ? v.trim().replace(/^"(.*)"$
 export function withSettings(raw: Env): Env {
   const env = Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, clean(v)])) as unknown as Env;
   const mock = env.BACKEND === 'mock';
-  const data = parseDataUrl(env.DATA_URL ?? (mock ? 's3://mock-bucket/spida_dev/cellpose_3d_test/patches/' : ''));
+  const data = parseDataUrl(env.DATA_URL ?? (mock ? 's3://mock-bucket/' : ''));
   return {
     ...env,
     BUCKET: data?.bucket,

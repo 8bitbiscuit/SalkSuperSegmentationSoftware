@@ -4,7 +4,14 @@
 # exits, the watchdog sees session-done and powers the instance off.
 set -a; . /etc/annotate/session.env; set +a
 export USER=$ANNOTATOR   # open_project.py names the masks after $USER
-export IMAGES="images/${CHANNEL}_z*.tif"
+# A glob per image stack picked on the website, which open_project.py opens
+# as a layer each: mosaic_DAPI.decon -> images/mosaic_DAPI_z*.decon.tif.
+# CHANNEL alone: the website from before stacks could be picked.
+IFS=: read -ra stacks <<<"${CHANNELS:-$CHANNEL}"
+globs=()
+for s in "${stacks[@]}"; do base=${s%%.*}; globs+=("images/${base}_z*${s#"$base"}.tif"); done
+IMAGES=$(IFS=:; echo "${globs[*]}")
+export IMAGES
 run=/run/annotate
 log=$run/napari.log
 touch "$run/desktop-started"   # the X server is up: session-boot.sh waits for this

@@ -21,7 +21,10 @@
 >   `salk-workstation-data-dev-020125249408`, under
 >   `spida_dev/cellpose_3d_test/patches/<brain region>/<region>/<field of view>/`,
 >   with `DAPI_decon_z*.tif` directly inside and masks saved to `masks/`
->   beside them. The picker lists the folders live. Terraform only reads
+>   beside them; and, since, under
+>   `spatial_data/<experiment>/out/<region>/images/` too, as whole-region
+>   mosaics the annotator picks from (README, The data). The picker lists
+>   the folders live. Terraform only reads
 >   that bucket and never changes its settings, so versioning is up to the
 >   bucket's owner. The `regions/` layout in sections 4 and 5 is out of date.
 > - The AMI is CPU-only until Phase 0 shows a GPU is needed.
