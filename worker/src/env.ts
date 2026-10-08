@@ -13,7 +13,7 @@ export interface Env {
   CF_API_TOKEN?: string;           // secret
   DESKTOP_HOSTNAME?: string;       // e.g. annotate-{id}.example.org; unset: quick tunnels (tunnel.ts)
   // Optional:
-  CHANNEL?: string;                // default DAPI_decon: spida_dev opens <field of view>/<CHANNEL>_z<N>.tif
+  CHANNEL?: string;                // default DAPI_raw: spida_dev opens <field of view>/<CHANNEL>_z<N>.tif
   IDLE_MINUTES?: string;           // default 30
   AWS_REGION?: string;             // default: the user pool's region
 

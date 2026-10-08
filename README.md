@@ -207,8 +207,9 @@ Cognito, then AWS in your name, then the bucket.
 
 Optional settings, with their defaults:
 
-- `CHANNEL` (`DAPI_decon`): which spida_dev images open. A spida_dev folder
-  counts as a field of view when it holds `<CHANNEL>_z<number>.tif` files.
+- `CHANNEL` (`DAPI_raw`): which spida_dev images open (`DAPI_decon` for the
+  deconvolved ones). A spida_dev folder counts as a field of view when it
+  holds `<CHANNEL>_z<number>.tif` files.
   (In spatial_data, the annotator picks the images.)
 - `IDLE_MINUTES` (`30`): a desktop with nobody connected this long powers off.
 
@@ -305,7 +306,7 @@ are laid out differently (`worker/src/sources.ts`):
 
 ```
 spida_dev/cellpose_3d_test/patches/
-  <brain region>/<region>/<field of view>/DAPI_decon_z0.tif, DAPI_decon_z1.tif, ...
+  <brain region>/<region>/<field of view>/DAPI_raw_z0.tif, DAPI_raw_z1.tif, ...
   <brain region>/<region>/<field of view>/masks/        (created by the first save)
 
 spatial_data/

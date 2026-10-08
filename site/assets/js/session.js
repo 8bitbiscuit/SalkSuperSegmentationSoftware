@@ -181,10 +181,11 @@
     next(wanted);   // carry on down to the folder used last time
   }
 
-  /** A region's image stacks to tick, the ones picked last time already ticked (else the first). */
+  /** A region's image stacks to tick, the ones picked last time already ticked (else the first raw one). */
   function showStacks(stacks) {
     const last = recallList('stacks');
-    const on = stacks.some((s) => last.includes(s.name)) ? last : [stacks[0].name];
+    const raw = stacks.find((s) => !s.name.includes('.')) || stacks[0];   // mosaic_DAPI, not mosaic_DAPI.decon
+    const on = stacks.some((s) => last.includes(s.name)) ? last : [raw.name];
     root.querySelector('#stacks').innerHTML = stacks.map((s) => `
       <label class="check"><input type="checkbox" value="${esc(s.name)}"${on.includes(s.name) ? ' checked' : ''}>
         <span>${esc(s.name)} <span class="muted">· ${planes(s.planes)} · ${size(s.bytes)}</span></span></label>`).join('');

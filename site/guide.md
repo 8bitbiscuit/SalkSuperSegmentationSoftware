@@ -20,7 +20,7 @@ the masks under your own sign-in so that you can continue where you left off!
 
 1. On the [session page]({{ '/' | relative_url }}), pick the **data**:
    - **spida_dev**: then a **brain region**, a **region** and a **field of
-     view**. It opens the field of view's DAPI_decon images.
+     view**. It opens the field of view's raw DAPI images.
    - **spatial_data**: then an **experiment** and a **region**, and tick the
      **images to open**: DAPI, GFAP, PolyT and so on. A name ending in
      `.decon` is the deconvolved version. Each one ticked opens as its own
@@ -33,7 +33,7 @@ the masks under your own sign-in so that you can continue where you left off!
 3. Click **Start session**. The desktop will take around 2–4 minutes to come up. The page
    updates by itself so you don't need to constantly refresh.
 4. Click **Open desktop** once it pops up. It opens in a new tab with napari showing a
-   layer for each image, named after it (for example **DAPI_decon** or
+   layer for each image, named after it (for example **DAPI_raw** or
    **mosaic_GFAP**), and **masks** (what you paint). The first image is grey,
    any others are coloured on top of it; hide one with its eye icon.
 

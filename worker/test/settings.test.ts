@@ -35,7 +35,7 @@ test('the rest is worked out: bucket, prefix, region from the pool, channel and 
   assert.equal(env.BUCKET, 'salk-workstation-data-dev-020125249408');
   assert.equal(env.DATA_PREFIX, 'spida_dev/cellpose_3d_test/patches/');
   assert.equal(env.AWS_REGION, 'us-west-2');
-  assert.equal(env.CHANNEL, 'DAPI_decon');
+  assert.equal(env.CHANNEL, 'DAPI_raw');
   assert.equal(env.IDLE_MINUTES, '30');
   assert.equal(env.DESKTOP_HOSTNAME, undefined);
   assert.equal(withSettings({ ...ready, COGNITO_USER_POOL_ID: 'eu-central-1_X', CHANNEL: 'PVALB_decon' }).AWS_REGION, 'eu-central-1');

@@ -22,8 +22,8 @@ interface MockInstance extends Instance {
 const FILES = [
   ...['CBDN/region_UWA-7648/fov_07', 'CBDN/region_UWA-7648/fov_08', 'CBDN/region_UWA-7650/fov_01',
     'THM1/region_UWA-7701/fov_02', 'VePo/region_UWA-7733/fov_11',
-  ].flatMap((fov) => Array.from({ length: 7 }, (_, z) =>
-    ({ key: `spida_dev/cellpose_3d_test/patches/${fov}/DAPI_decon_z${z}.tif`, size: 40e6 }))),
+  ].flatMap((fov) => ['DAPI_raw', 'DAPI_decon'].flatMap((stack) => Array.from({ length: 7 }, (_, z) =>
+    ({ key: `spida_dev/cellpose_3d_test/patches/${fov}/${stack}_z${z}.tif`, size: 40e6 })))),
   ...['202507181027_BICAN-4x1-A10-Q-02_VMSC31910/out/region_UCI-2424',
     '202507181027_BICAN-4x1-A10-Q-02_VMSC31910/out/region_UCI-5224',
     '202508011054_BICAN-4x1-A38-E-05_VMSC31910/out/region_UWA-7648',

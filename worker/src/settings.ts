@@ -38,7 +38,7 @@ export function withSettings(raw: Env): Env {
     ...env,
     BUCKET: data?.bucket,
     DATA_PREFIX: data?.prefix ?? '',
-    CHANNEL: env.CHANNEL || 'DAPI_decon',
+    CHANNEL: env.CHANNEL || 'DAPI_raw',
     IDLE_MINUTES: env.IDLE_MINUTES || '30',
     AWS_REGION: env.AWS_REGION || env.COGNITO_USER_POOL_ID?.split('_')[0] || 'us-west-2',
     DESKTOP_HOSTNAME: env.DESKTOP_HOSTNAME || (mock ? '{id}.localhost' : undefined),
